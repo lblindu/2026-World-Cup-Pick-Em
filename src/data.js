@@ -1,17 +1,17 @@
 // ---- Real 2026 groups (draw of Dec 5, 2025) --------------------------------
 export const GROUPS = [
-  { id: "A", teams: [["Mexico", "🇲🇽"], ["South Africa", "🇿🇦"], ["South Korea", "🇰🇷"], ["Czechia", "🇨🇿"]] },
-  { id: "B", teams: [["Canada", "🇨🇦"], ["Bosnia & Herz.", "🇧🇦"], ["Qatar", "🇶🇦"], ["Switzerland", "🇨🇭"]] },
-  { id: "C", teams: [["Brazil", "🇧🇷"], ["Morocco", "🇲🇦"], ["Haiti", "🇭🇹"], ["Scotland", "🏴󠁧󠁢󠁳󠁣󠁴󠁿"]] },
-  { id: "D", teams: [["United States", "🇺🇸"], ["Paraguay", "🇵🇾"], ["Australia", "🇦🇺"], ["Türkiye", "🇹🇷"]] },
-  { id: "E", teams: [["Germany", "🇩🇪"], ["Curaçao", "🇨🇼"], ["Côte d'Ivoire", "🇨🇮"], ["Ecuador", "🇪🇨"]] },
-  { id: "F", teams: [["Netherlands", "🇳🇱"], ["Japan", "🇯🇵"], ["Sweden", "🇸🇪"], ["Tunisia", "🇹🇳"]] },
-  { id: "G", teams: [["Belgium", "🇧🇪"], ["Egypt", "🇪🇬"], ["Iran", "🇮🇷"], ["New Zealand", "🇳🇿"]] },
-  { id: "H", teams: [["Spain", "🇪🇸"], ["Cape Verde", "🇨🇻"], ["Saudi Arabia", "🇸🇦"], ["Uruguay", "🇺🇾"]] },
-  { id: "I", teams: [["France", "🇫🇷"], ["Senegal", "🇸🇳"], ["Iraq", "🇮🇶"], ["Norway", "🇳🇴"]] },
-  { id: "J", teams: [["Argentina", "🇦🇷"], ["Algeria", "🇩🇿"], ["Austria", "🇦🇹"], ["Jordan", "🇯🇴"]] },
-  { id: "K", teams: [["Portugal", "🇵🇹"], ["DR Congo", "🇨🇩"], ["Uzbekistan", "🇺🇿"], ["Colombia", "🇨🇴"]] },
-  { id: "L", teams: [["England", "🏴󠁧󠁢󠁥󠁮󠁧󠁿"], ["Croatia", "🇭🇷"], ["Ghana", "🇬🇭"], ["Panama", "🇵🇦"]] },
+  { id: "A", teams: [["Mexico", "mx"], ["South Africa", "za"], ["South Korea", "kr"], ["Czechia", "cz"]] },
+  { id: "B", teams: [["Canada", "ca"], ["Bosnia & Herz.", "ba"], ["Qatar", "qa"], ["Switzerland", "ch"]] },
+  { id: "C", teams: [["Brazil", "br"], ["Morocco", "ma"], ["Haiti", "ht"], ["Scotland", "gb-sct"]] },
+  { id: "D", teams: [["United States", "us"], ["Paraguay", "py"], ["Australia", "au"], ["Türkiye", "tr"]] },
+  { id: "E", teams: [["Germany", "de"], ["Curaçao", "cw"], ["Côte d'Ivoire", "ci"], ["Ecuador", "ec"]] },
+  { id: "F", teams: [["Netherlands", "nl"], ["Japan", "jp"], ["Sweden", "se"], ["Tunisia", "tn"]] },
+  { id: "G", teams: [["Belgium", "be"], ["Egypt", "eg"], ["Iran", "ir"], ["New Zealand", "nz"]] },
+  { id: "H", teams: [["Spain", "es"], ["Cape Verde", "cv"], ["Saudi Arabia", "sa"], ["Uruguay", "uy"]] },
+  { id: "I", teams: [["France", "fr"], ["Senegal", "sn"], ["Iraq", "iq"], ["Norway", "no"]] },
+  { id: "J", teams: [["Argentina", "ar"], ["Algeria", "dz"], ["Austria", "at"], ["Jordan", "jo"]] },
+  { id: "K", teams: [["Portugal", "pt"], ["DR Congo", "cd"], ["Uzbekistan", "uz"], ["Colombia", "co"]] },
+  { id: "L", teams: [["England", "gb-eng"], ["Croatia", "hr"], ["Ghana", "gh"], ["Panama", "pa"]] },
 ];
 
 export const FLAG = {};

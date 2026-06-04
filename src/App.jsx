@@ -10,7 +10,7 @@ import {
   loadEveryone, loadResults, saveGroupResult, saveKnockoutResults,
 } from "./supabaseClient.js";
 
-const Fl = ({ t }) => <span className="fl">{FLAG[t] || ""}</span>;
+const Fl = ({ t }) => FLAG[t] ? <span className={`fl fi fi-${FLAG[t]}`}></span> : null;
 
 function toggleKo(ko, round, team) {
   const r = KO.find((x) => x.key === round);
@@ -190,7 +190,7 @@ function KnockoutBoard({ ko, onToggle, round, setRound, locked, tb, setTb, mode 
           <label className="lab">2 · Top-scoring team of the tournament</label>
           <select className="field" disabled={locked} value={tb.top_scoring_team ?? ""}
             onChange={(e) => setTb({ ...tb, top_scoring_team: e.target.value || null })}>
-            <option value="">Select a team…</option>{ALL_TEAMS.map((t) => <option key={t} value={t}>{FLAG[t]} {t}</option>)}</select>
+            <option value="">Select a team…</option>{ALL_TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}</select>
           <label className="lab">3 · Tournament top scorer (player)</label>
           <input className="field" placeholder="e.g. Kylian Mbappé" disabled={locked}
             value={tb.top_scorer ?? ""} onChange={(e) => setTb({ ...tb, top_scorer: e.target.value })} />
