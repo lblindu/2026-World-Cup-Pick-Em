@@ -175,8 +175,8 @@ function KnockoutBoard({ ko, onToggle, round, setRound, locked, tb, setTb, mode 
         <div className="empty">Finish your Semifinals first — then choose who wins the playoff between the two losing semifinalists.</div>
       ) : pool.length === 0 && round !== "ko32" ? (
         <div className="empty">Make your picks in the earlier round first — then only those teams show up here.</div>
-      ) : round === "ko32" ? (
-        /* Group Stage → Round of 32: render chips grouped by their original group */
+      ) : ["ko32", "ro16", "ro8"].includes(round) ? (
+        /* Group Stage / Round of 32 / Round of 16: chips grouped by original group */
         GROUPS.map((g) => {
           const gTeams = g.teams.map((t) => t[0]).filter((t) => pool.includes(t));
           if (!gTeams.length) return null;
@@ -190,7 +190,7 @@ function KnockoutBoard({ ko, onToggle, round, setRound, locked, tb, setTb, mode 
           );
         })
       ) : (
-        /* All other knockout rounds: flat chip list with group badge */
+        /* Quarterfinals onward: flat chip list with group badge */
         <div className="chips">{pool.map((t) => { const on = sel.includes(t); const lock = !on && sel.length >= r.count;
           return (<button key={t} className={`chip ${on ? "sel" : ""} ${lock ? "lock" : ""}`} disabled={locked}
             onClick={() => onToggle(round, t)}><Fl t={t} /><span className="cn">{t}</span><span className="grp-tag">{TEAM_GROUP[t]}</span></button>); })}</div>
