@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   GROUPS, MATCHES, TOTAL_MATCHES, KO, ALL_TEAMS,
-  FLAG, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
+  FLAG, TEAM_GROUP, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
 } from "./data.js";
 import {
   isConfigured, supabase, MAX_ENTRIES, signUp, signIn, signOut, ensureProfile, isAdmin,
@@ -175,10 +175,25 @@ function KnockoutBoard({ ko, onToggle, round, setRound, locked, tb, setTb, mode 
         <div className="empty">Finish your Semifinals first — then choose who wins the playoff between the two losing semifinalists.</div>
       ) : pool.length === 0 && round !== "ko32" ? (
         <div className="empty">Make your picks in the earlier round first — then only those teams show up here.</div>
+      ) : round === "ko32" ? (
+        /* Group Stage → Round of 32: render chips grouped by their original group */
+        GROUPS.map((g) => {
+          const gTeams = g.teams.map((t) => t[0]).filter((t) => pool.includes(t));
+          if (!gTeams.length) return null;
+          return (
+            <div className="ko-group-section" key={g.id}>
+              <div className="ko-group-label"><span className="grp-badge">{g.id}</span>{g.teams.map((t) => t[0]).join("  ·  ")}</div>
+              <div className="chips">{gTeams.map((t) => { const on = sel.includes(t); const lock = !on && sel.length >= r.count;
+                return (<button key={t} className={`chip ${on ? "sel" : ""} ${lock ? "lock" : ""}`} disabled={locked}
+                  onClick={() => onToggle(round, t)}><Fl t={t} /><span className="cn">{t}</span><span className="grp-tag">{TEAM_GROUP[t]}</span></button>); })}</div>
+            </div>
+          );
+        })
       ) : (
+        /* All other knockout rounds: flat chip list with group badge */
         <div className="chips">{pool.map((t) => { const on = sel.includes(t); const lock = !on && sel.length >= r.count;
           return (<button key={t} className={`chip ${on ? "sel" : ""} ${lock ? "lock" : ""}`} disabled={locked}
-            onClick={() => onToggle(round, t)}><Fl t={t} /><span className="cn">{t}</span></button>); })}</div>
+            onClick={() => onToggle(round, t)}><Fl t={t} /><span className="cn">{t}</span><span className="grp-tag">{TEAM_GROUP[t]}</span></button>); })}</div>
       )}
       {mode !== "admin" && round === "champ" && (
         <div className="card tb" style={{ marginTop: 22 }}>
@@ -413,7 +428,7 @@ export default function App() {
   function setTb(newTb) { setPicks((p) => ({ ...p, [activeId]: { ...p[activeId], tb: newTb } })); }
 
   async function refreshEveryone() { setEveryone(await loadEveryone()); }
-  async function saveGroups() { await saveGroupPicks(activeId, A.gp); flash("Group picks saved"); }
+  async function saveGroups() { await saveGroupPicks(activeId, A.gp); setToast("group-saved"); setTimeout(() => setToast(""), 5000); }
   async function saveKnockoutsAll() { await saveKnockoutPicks(activeId, A.ko); await saveTiebreakers(activeId, A.tb); flash("Knockout picks saved"); }
 
   async function onCreateEntry(name) {
@@ -483,7 +498,17 @@ export default function App() {
 
       {showSave && (<div className="savebar"><button className="btn" onClick={tab === "groups" ? saveGroups : saveKnockoutsAll}>
         Save {tab === "groups" ? "Group" : "Knockout"} Picks</button></div>)}
-      {toast && <div className="toast">{toast}</div>}
+      {toast === "group-saved" && (
+        <div className="toast toast-rich">
+          <span className="toast-icon">✅</span>
+          <div className="toast-body">
+            <strong>Group picks saved!</strong>
+            <span>Don't forget to pick your Round of 32 teams in Knockouts.</span>
+          </div>
+          <button className="toast-cta" onClick={() => { setTab("knockouts"); setToast(""); }}>Go →</button>
+        </div>
+      )}
+      {toast && toast !== "group-saved" && <div className="toast">{toast}</div>}
     </>
   );
 }

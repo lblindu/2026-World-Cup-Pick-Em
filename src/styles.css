@@ -81,6 +81,19 @@ code{background:rgba(21,23,31,.06);padding:1px 5px;border-radius:5px;font-size:.
 .chip.auto{background:var(--green);color:#fff;border-color:var(--green);cursor:default}
 .chip .fl{flex:0 0 22px;text-align:center;font-size:15px}
 .chip .cn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Group badge on knockout chips */
+.grp-tag{font-size:10px;font-weight:800;letter-spacing:.04em;background:rgba(20,80,212,.1);color:var(--blue);border-radius:4px;padding:1px 5px;flex-shrink:0;line-height:1.6;margin-left:auto}
+.chip.sel .grp-tag{background:rgba(255,255,255,.25);color:#fff}
+/* ko32 grouped-by-section layout */
+.ko-group-section{margin-bottom:18px}
+.ko-group-label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mut);margin-bottom:8px}
+/* Rich toast (group saves) */
+.toast.toast-rich{border-radius:14px;padding:14px 16px;max-width:420px;width:calc(100% - 40px);display:flex;align-items:center;gap:12px;min-width:0}
+.toast-icon{font-size:20px;flex-shrink:0}
+.toast-body{flex:1;min-width:0}
+.toast-body strong{display:block;font-size:13.5px;font-weight:800;margin-bottom:2px}
+.toast-body span{font-size:12px;color:rgba(255,255,255,.72);line-height:1.4}
+.toast-cta{background:var(--green);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0}
 .empty{background:var(--paper2);border:1px dashed var(--line);border-radius:14px;padding:26px 18px;text-align:center;color:var(--mut);font-size:14px;line-height:1.5}
 
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}

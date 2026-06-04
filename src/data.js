@@ -15,7 +15,8 @@ export const GROUPS = [
 ];
 
 export const FLAG = {};
-GROUPS.forEach((g) => g.teams.forEach(([n, f]) => (FLAG[n] = f)));
+export const TEAM_GROUP = {};
+GROUPS.forEach((g) => g.teams.forEach(([n, f]) => { FLAG[n] = f; TEAM_GROUP[n] = g.id; }));
 
 const PAIRS = [[0, 1], [2, 3], [0, 2], [1, 3], [0, 3], [1, 2]];
 export const MATCHES = GROUPS.flatMap((g) =>
