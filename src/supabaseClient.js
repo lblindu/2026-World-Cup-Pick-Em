@@ -15,6 +15,10 @@ export const signUp = (email, password, displayName) =>
   supabase.auth.signUp({ email, password, options: { data: { display_name: displayName } } });
 export const signIn = (email, password) => supabase.auth.signInWithPassword({ email, password });
 export const signOut = () => supabase.auth.signOut();
+export const sendPasswordReset = (email) =>
+  supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+export const updatePassword = (newPassword) =>
+  supabase.auth.updateUser({ password: newPassword });
 
 export async function ensureProfile(user) {
   const name = user.user_metadata?.display_name || user.email.split("@")[0];

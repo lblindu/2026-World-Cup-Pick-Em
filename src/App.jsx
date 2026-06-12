@@ -4,7 +4,7 @@ import {
   FLAG, TEAM_GROUP, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
 } from "./data.js";
 import {
-  isConfigured, supabase, MAX_ENTRIES, signUp, signIn, signOut, ensureProfile, isAdmin,
+  isConfigured, supabase, MAX_ENTRIES, signUp, signIn, signOut, sendPasswordReset, updatePassword, ensureProfile, isAdmin,
   getLockAt, loadMyEntries, createEntry, deleteEntry, loadEntryPicks,
   saveGroupPicks, saveKnockoutPicks, saveTiebreakers,
   loadEveryone, loadResults, saveGroupResult, saveKnockoutResults,
@@ -27,6 +27,43 @@ function fmtCountdown(ms) {
   const d = Math.floor(ms / 86400000), h = Math.floor(ms / 3600000) % 24,
     m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60;
   return `${d}d ${h}h ${m}m ${s}s`;
+}
+
+// Detect a password-recovery link (captured synchronously before Supabase clears the URL hash)
+const isRecoveryUrl =
+  typeof window !== "undefined" && window.location.hash.includes("type=recovery");
+
+// ---------------------------------------------------------------- Reset password
+function ResetPassword({ onDone }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (pw.length < 6) { setMsg("Use at least 6 characters."); return; }
+    if (pw !== pw2) { setMsg("Those two passwords don't match."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const { error } = await updatePassword(pw);
+      if (error) { setMsg(error.message); setBusy(false); return; }
+      if (window.history.replaceState) window.history.replaceState(null, "", window.location.pathname);
+      onDone();
+    } catch (e) { setMsg(e.message); setBusy(false); }
+  }
+  return (
+    <div className="auth">
+      <div className="pitch-deco" />
+      <h1 className="wordmark" style={{ fontSize: 40 }}>Set a new<br /><span>password</span></h1>
+      <div className="uline" />
+      <p className="sub">Pick a new password for your account — you'll be signed in right after.</p>
+      <input className="field" type="password" placeholder="New password" value={pw}
+        onChange={(e) => setPw(e.target.value)} />
+      <input className="field" type="password" placeholder="Confirm new password" value={pw2}
+        onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+      <button className="btn full" disabled={busy} onClick={save}>{busy ? "…" : "Save new password"}</button>
+      {msg && <p className="note" style={{ marginTop: 12, color: "var(--red)" }}>{msg}</p>}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------- Auth screen
@@ -52,6 +89,15 @@ function AuthScreen() {
     } catch (e) { setMsg(e.message); }
     setBusy(false);
   }
+  async function forgot() {
+    if (!email.trim()) { setMsg("Type your email above first, then tap this."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const { error } = await sendPasswordReset(email.trim());
+      setMsg(error ? error.message : "Sent! Check your email for a reset link.");
+    } catch (e) { setMsg(e.message); }
+    setBusy(false);
+  }
   return (
     <div className="auth">
       <div className="pitch-deco" />
@@ -64,7 +110,11 @@ function AuthScreen() {
       <input className="field" type="password" placeholder="Password" value={pw}
         onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
       <button className="btn full" disabled={busy} onClick={go}>{busy ? "…" : mode === "up" ? "Create account" : "Sign in"}</button>
-      {msg && <p className="note" style={{ marginTop: 12, color: "var(--red)" }}>{msg}</p>}
+      {mode === "in" && (
+        <p className="note" style={{ marginTop: 10, textAlign: "center" }}>
+          <a style={{ color: "var(--blue)", cursor: "pointer", fontWeight: 700 }} onClick={forgot}>Forgot password?</a>
+        </p>
+      )}
       <p className="note" style={{ marginTop: 14 }}>
         {mode === "up" ? "Already have an account? " : "New here? "}
         <a style={{ color: "var(--blue)", cursor: "pointer", fontWeight: 700 }}
@@ -362,6 +412,7 @@ function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, 
 // ================================================================ App
 export default function App() {
   const [session, setSession] = useState(null);
+  const [recovery, setRecovery] = useState(isRecoveryUrl);
   const [ownerName, setOwnerName] = useState("");
   const [userId, setUserId] = useState(null);
   const [admin, setAdmin] = useState(false);
@@ -388,7 +439,10 @@ export default function App() {
   useEffect(() => {
     if (!isConfigured) { setLoading(false); return; }
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      setSession(s);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
@@ -462,6 +516,7 @@ export default function App() {
   if (!isConfigured) return (<div className="auth"><div className="pitch-deco" />
     <h1 className="wordmark" style={{ fontSize: 40 }}>Setup needed</h1>
     <p className="sub">Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> (see README) and reload.</p></div>);
+  if (recovery) return <ResetPassword onDone={() => setRecovery(false)} />;
   if (loading) return (<div className="auth"><div className="pitch-deco" /><p className="sub">Loading…</p></div>);
   if (!session) return <AuthScreen />;
 
