@@ -74,19 +74,38 @@ export async function saveTiebreakers(entryId, tb) {
   });
 }
 
-// ---- Everyone's entries + results (reveal & leaderboard) -------------------
+// Fetch every row from a table, 1000 at a time, to get past
+// Supabase's per-request row cap (default 1000 rows).
+async function fetchAll(table, columns) {
+  const step = 1000;
+  let from = 0, all = [], chunk;
+  do {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .range(from, from + step - 1);
+    if (error) throw error;
+    chunk = data || [];
+    all = all.concat(chunk);
+    from += chunk.length;
+  } while (chunk.length === step);
+  return all;
+}
+
 export async function loadEveryone() {
   const [entries, profiles, gp, kp] = await Promise.all([
-    supabase.from("entries").select("id,name,user_id"),
-    supabase.from("profiles").select("id,display_name"),
-    supabase.from("group_predictions").select("entry_id,match_id,pick"),
-    supabase.from("knockout_predictions").select("entry_id,round,team"),
+    fetchAll("entries", "id,name,user_id"),
+    fetchAll("profiles", "id,display_name"),
+    fetchAll("group_predictions", "entry_id,match_id,pick"),
+    fetchAll("knockout_predictions", "entry_id,round,team"),
   ]);
-  const owners = {}; (profiles.data || []).forEach((p) => (owners[p.id] = p.display_name));
+  const owners = {}; profiles.forEach((p) => (owners[p.id] = p.display_name));
   const map = {};
-  (entries.data || []).forEach((e) => (map[e.id] = { id: e.id, name: e.name, owner: owners[e.user_id] || "—", ownerId: e.user_id, gp: {}, ko: {} }));
-  (gp.data || []).forEach((r) => { if (map[r.entry_id]) map[r.entry_id].gp[r.match_id] = r.pick; });
-  (kp.data || []).forEach((r) => { if (map[r.entry_id]) { map[r.entry_id].ko[r.round] = map[r.entry_id].ko[r.round] || []; map[r.entry_id].ko[r.round].push(r.team); } });
+  entries.forEach((e) => (map[e.id] = {
+    id: e.id, name: e.name, owner: owners[e.user_id] || "—", ownerId: e.user_id, gp: {}, ko: {},
+  }));
+  gp.forEach((r) => { if (map[r.entry_id]) map[r.entry_id].gp[r.match_id] = r.pick; });
+  kp.forEach((r) => { if (map[r.entry_id]) { (map[r.entry_id].ko[r.round] ||= []).push(r.team); } });
   return Object.values(map);
 }
 
