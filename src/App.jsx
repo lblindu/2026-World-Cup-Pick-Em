@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   GROUPS, MATCHES, TOTAL_MATCHES, KO, ALL_TEAMS,
-  FLAG, TEAM_GROUP, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
+  FLAG, TEAM_GROUP, TEAM_CODE, SCHEDULE, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
 } from "./data.js";
 import {
   isConfigured, supabase, MAX_ENTRIES, signUp, signIn, signOut, sendPasswordReset, updatePassword, ensureProfile, isAdmin,
@@ -266,67 +266,223 @@ function KnockoutBoard({ ko, onToggle, round, setRound, locked, tb, setTb, mode 
   );
 }
 
+// ---- Everyone's Picks: schedule helpers (module-level) ----
+const _ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const _fmtDate = s => new Date(s + 'T12:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+const _fmtShort = dt => new Date(dt).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+function _matchSt(m) {
+  const diff = Date.now() - new Date(m.dt).getTime();
+  if (diff < 0) return { st:'sched' };
+  if (diff < 120 * 60000) return { st:'live', min: Math.max(1, Math.floor(diff / 60000)) };
+  return { st:'ft' };
+}
+
 // ---------------------------------------------------------------- Reveal
 function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes }) {
   const [sub, setSub] = useState("groups");
   const gr = results.groupResults, kr = results.koResults;
+
+  // Filter state — default to Date=today (or next game day)
+  const SDATES = [...new Set(SCHEDULE.map(m => m.dt.slice(0,10)))].sort();
+  const SGROUPS = [...new Set(SCHEDULE.map(m => m.g))].sort();
+  const STEAMS = [...new Set(SCHEDULE.flatMap(m => [m.home, m.away]))].sort();
+  const todayStr = _ymd(new Date());
+  const defDate = SDATES.includes(todayStr) ? todayStr : (SDATES.find(d => d >= todayStr) || SDATES[SDATES.length-1]);
+  const [filterBy, setFilterBy] = useState("Date");
+  const [filterSub, setFilterSub] = useState(defDate);
+  const [liveTick, setLiveTick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setLiveTick(n => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+
   if (!locked) {
     return (<div className="fade"><div className="head"><div className="h1">Everyone's Picks</div><div className="pill">Hidden</div></div>
       <div className="lockbar"><span className="ico">👀</span>
         <span className="txt"><b>Hidden until kickoff.</b> Everyone&rsquo;s picks reveal once the opening match starts, so nobody can copy.</span></div></div>);
   }
-  const cols = everyone;
+
+  // Entries: own entries first (A→Z), then everyone else (A→Z)
+  const mine = everyone.filter(c => c.ownerId === myUserId).sort((a, b) => a.name.localeCompare(b.name));
+  const others = everyone.filter(c => c.ownerId !== myUserId).sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...mine, ...others];
+
+  // Filter controls
+  function subOpts(by) {
+    if (by === "Group") return SGROUPS.map(g => [g, `Group ${g}`]);
+    if (by === "Date") return SDATES.map(d => [d, _fmtDate(d)]);
+    if (by === "Country") return STEAMS.map(t => [t, t]);
+    return [];
+  }
+  function onFilterBy(v) {
+    setFilterBy(v);
+    setFilterSub(v === "Date" ? defDate : subOpts(v)[0]?.[0] ?? "");
+  }
+
+  const visMat = (() => {
+    let ms = SCHEDULE.slice();
+    if (filterBy === "Group") ms = ms.filter(m => m.g === filterSub);
+    else if (filterBy === "Date") ms = ms.filter(m => m.dt.slice(0,10) === filterSub);
+    else if (filterBy === "Country") ms = ms.filter(m => m.home === filterSub || m.away === filterSub);
+    return ms.sort((a, b) => a.num - b.num);
+  })();
+
+  // Live banner — recomputed on liveTick (state change re-renders component)
+  const liveM = SCHEDULE.find(m => _matchSt(m).st === "live");
+  const myFirst = mine[0];
+  let bannerEl;
+  if (!liveM) {
+    bannerEl = <div className="ev-banner calm">😌 No games on right now — time to relax. Go touch some grass.</div>;
+  } else {
+    const st = _matchSt(liveM);
+    const pick = myFirst?.gp[liveM.matchId];
+    let pickEl = null;
+    if (pick) {
+      const t = pick === "draw" ? null : pick === "home" ? liveM.matchHome : liveM.matchAway;
+      pickEl = <span className="ev-bpick"><span className="ev-blbl">Your pick</span>{t ? <><Fl t={t} /> {t}</> : "Draw"}</span>;
+    }
+    bannerEl = (
+      <div className="ev-banner live">
+        <span className="ev-blab"><span className="ev-dot" /> LIVE NOW</span>
+        <span className="ev-bg"><Fl t={liveM.home} /> <b>{liveM.home}</b> <span className="ev-vs">vs</span> <b>{liveM.away}</b> <Fl t={liveM.away} /></span>
+        <span className="ev-bmin">{st.min}'</span>
+        {pickEl}
+      </div>
+    );
+  }
+
   const goals = teamGoals(gr);
   const topGoals = Object.entries(goals).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const wfRounds = [["ko32", "Last 32"], ["ro16", "Last 16"], ["ro8", "Quarterfinalists"],
-    ["ro4", "Semifinalists"], ["ro2", "Finalists"], ["third", "3rd Place"], ["champ", "Champion"]];
+  const wfRounds = [["ko32","Last 32"],["ro16","Last 16"],["ro8","Quarterfinalists"],
+    ["ro4","Semifinalists"],["ro2","Finalists"],["third","3rd Place"],["champ","Champion"]];
+
   return (
     <div className="fade">
       <div className="head"><div className="h1">Everyone's Picks</div><div className="pill">Live</div></div>
       <div className="seg">
         <button className={sub === "groups" ? "on" : ""} onClick={() => setSub("groups")}>Group Stage</button>
-        <button className={sub === "ko" ? "on" : ""} onClick={() => setSub("ko")}>Knockouts</button></div>
-      <div className="res-row">
-        <button className={`res-btn ${showRes ? "on" : ""}`} onClick={() => setShowRes(!showRes)}>{showRes ? "✓ Showing results" : "Show results"}</button>
-        <span className="note">Correct picks turn green, wrong ones get crossed out, with a points tally — once results are entered.</span></div>
+        <button className={sub === "ko" ? "on" : ""} onClick={() => setSub("ko")}>Knockouts</button>
+      </div>
+
       {sub === "groups" ? (<>
-        {showRes && topGoals.length > 0 && (
-          <div className="goalbar"><span className="gb-lab">⚽ Most goals (group stage) — feeds the top-scoring-team tiebreaker</span>
-            <div className="gb-chips">{topGoals.map(([t, g]) => (<span className="gb-chip" key={t}><Fl t={t} /><span className="cn">{t}</span><b>{g}</b></span>))}</div></div>)}
-        {GROUPS.map((g) => { const ms = MATCHES.filter((m) => m.group === g.id);
-          return (<div className="gt-card" key={g.id}><div className="gt-title"><span className="gt-badge">{g.id}</span>Group {g.id}</div>
-            <div className="rt-wrap"><table className="gt"><thead><tr><th className="pc">Entry</th>
-              {ms.map((m) => { const sc = showRes ? gr[m.id] : null; const w = sc ? matchWinner(m, sc) : null;
-                return (<th className="mh" key={m.id}>
-                  <span className={`mh-t ${w === "home" ? "win" : ""}`}><Fl t={m.home} /><span className="cn">{m.home}</span>{w === "home" && <span className="wmk">✓</span>}</span>
-                  {sc ? <span className="mh-v score">{sc.h}–{sc.a}</span> : <span className="mh-v">vs</span>}
-                  <span className={`mh-t ${w === "away" ? "win" : ""}`}><Fl t={m.away} /><span className="cn">{m.away}</span>{w === "away" && <span className="wmk">✓</span>}</span>
-                  {w === "draw" && <span className="mh-res">Draw</span>}</th>); })}
-            </tr></thead><tbody>
-              {cols.map((c) => { let pts = 0;
-                const cells = ms.map((m) => { const pk = c.gp[m.id]; const sc = showRes ? gr[m.id] : null; const w = sc ? matchWinner(m, sc) : null;
-                  if (sc && pk && pk === w) pts++;
-                  if (!pk) return <td key={m.id}><span className="pk none">·</span></td>;
-                  const teamPicked = pk === "draw" ? null : pk === "home" ? m.home : m.away;
-                  const inner = pk === "draw" ? <span className="cn">Draw</span> : <><Fl t={teamPicked} /><span className="cn">{teamPicked}</span></>;
-                  let cls = pk === "draw" ? "pk draw" : "pk"; let mk = null;
-                  if (sc && w) { const ok = pk === w; cls += ok ? " correct" : " out"; mk = <span className="mk">{ok ? "✓" : "✕"}</span>; }
-                  return <td key={m.id}><span className={cls}>{inner}{mk}</span></td>; });
-                return (<tr className={c.ownerId === myUserId ? "me" : ""} key={c.id}>
-                  <td className="pc"><div>{c.name}</div><div className="owner">{c.owner}</div>{showRes && <span className="gpts">{pts} pt</span>}</td>{cells}</tr>); })}
-            </tbody></table></div></div>); })}
-        <div className="legend"><span>Each cell = that entry's predicted winner</span>{showRes ? <span>✓ correct · ✕ wrong — 1 pt per correct</span> : <span>· = no pick yet</span>}</div>
-      </>) : (
-        cols.map((c) => (<div className="wf-player" key={c.id}>
-          <div className="wf-name">{c.name} <span className="owner">· {c.owner}</span></div>
-          <div className="wf-cols">{wfRounds.map(([k, lab]) => { const list = c.ko[k] || [];
-            return (<div className={`wf-col ${k === "champ" ? "champ" : ""} ${k === "ko32" ? "wide" : ""}`} key={k}>
-              <h5>{lab}<b>{list.length}</b></h5><div className="wf-stack">
-                {list.length ? list.map((t) => { let cls = "wf-team", mk = null;
-                  if (showRes) { const ok = (kr[k] || []).includes(t); cls += ok ? " correct" : " out"; mk = <span className="mk">{ok ? "✓" : "✕"}</span>; }
-                  return <div className={cls} key={t}><Fl t={t} /><span className="cn">{t}</span>{mk}</div>; }) : <div className="wf-team empty">—</div>}
-              </div></div>); })}</div></div>))
-      )}
+        {/* Two-step filter */}
+        <div className="ev-filters">
+          <span className="ev-fl">Filter by</span>
+          <select className="ev-sel" value={filterBy} onChange={e => onFilterBy(e.target.value)}>
+            <option value="Group">Group</option>
+            <option value="Date">Date</option>
+            <option value="Country">Country</option>
+          </select>
+          <select className="ev-sel" value={filterSub} onChange={e => setFilterSub(e.target.value)}>
+            {subOpts(filterBy).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+
+        {/* Live banner — liveTick causes re-render so banner re-evaluates device clock */}
+        <div data-tick={liveTick}>{bannerEl}</div>
+
+        {/* Table: rows = entries, columns = filtered matches */}
+        <div className="ev-outer">
+          <div className="ev-scroll">
+            <table className="ev-tbl">
+              <thead>
+                <tr>
+                  <th className="ev-th-e">Entry</th>
+                  {visMat.map(m => {
+                    const st = _matchSt(m);
+                    const sc = gr[m.matchId];
+                    const w = sc ? matchWinner(m, sc) : null;
+                    // sf=true means tournament home is match_id "away"; flip score display accordingly
+                    const hg = sc ? (m.sf ? sc.a : sc.h) : null;
+                    const ag = sc ? (m.sf ? sc.h : sc.a) : null;
+                    const homeWon = w && !m.sf ? w === "home" : w && m.sf ? w === "away" : false;
+                    const awayWon = w && !m.sf ? w === "away" : w && m.sf ? w === "home" : false;
+                    return (
+                      <th key={m.matchId} className="ev-th-m">
+                        <div className="ev-mh">
+                          <div className="ev-mh-top">
+                            <span className="ev-gtag">{m.g}</span>
+                            {st.st === "live" && <span className="ev-mst live"><span className="ev-dot" />{st.min}'</span>}
+                            {st.st === "ft"   && <span className="ev-mst ft">FT</span>}
+                            {st.st === "sched" && <span className="ev-mst sched">{_fmtShort(m.dt)}</span>}
+                          </div>
+                          <div className={`ev-tl${homeWon ? " win" : ""}`}>
+                            <Fl t={m.home} /><span className="ev-tn">{m.home}</span><span className="ev-cd">{TEAM_CODE[m.home] || m.home}</span>
+                            {hg != null && <span className="ev-gg">{hg}</span>}
+                          </div>
+                          <div className={`ev-tl${awayWon ? " win" : ""}`}>
+                            <Fl t={m.away} /><span className="ev-tn">{m.away}</span><span className="ev-cd">{TEAM_CODE[m.away] || m.away}</span>
+                            {ag != null && <span className="ev-gg">{ag}</span>}
+                          </div>
+                        </div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(c => {
+                  const isMe = c.ownerId === myUserId;
+                  return (
+                    <tr key={c.id} className={isMe ? "ev-mine" : ""}>
+                      <td className="ev-td-e">
+                        <div className="ev-ename">{c.name}{isMe && <span className="ev-you">you</span>}</div>
+                        <div className="ev-eown">{c.owner}</div>
+                      </td>
+                      {visMat.map(m => {
+                        const pick = c.gp[m.matchId];
+                        const sc = gr[m.matchId];
+                        const w = sc ? matchWinner(m, sc) : null;
+                        if (!pick) return <td key={m.matchId} className="ev-td-k"><span className="ev-none">·</span></td>;
+                        const isDraw = pick === "draw";
+                        const pickedTeam = isDraw ? null : pick === "home" ? m.matchHome : m.matchAway;
+                        const state = w ? (pick === w ? "ok" : "no") : "pend";
+                        const icon = state === "ok" ? <span className="ev-ic ok">✓</span> : state === "no" ? <span className="ev-ic no">✕</span> : null;
+                        return (
+                          <td key={m.matchId} className={`ev-td-k${state !== "pend" ? " " + state : ""}`}>
+                            <span className={`ev-chip${isDraw ? " draw" : ""}`}>
+                              {icon}
+                              {isDraw ? <span className="ev-dr">Draw</span> : <><Fl t={pickedTeam} /><span className="ev-tn">{pickedTeam}</span></>}
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {topGoals.length > 0 && (
+          <div className="goalbar" style={{ marginTop: 14 }}>
+            <span className="gb-lab">⚽ Most goals (group stage) — feeds the top-scoring-team tiebreaker</span>
+            <div className="gb-chips">{topGoals.map(([t, g]) => <span className="gb-chip" key={t}><Fl t={t} /><span className="cn">{t}</span><b>{g}</b></span>)}</div>
+          </div>
+        )}
+      </>) : (<>
+        {/* Knockouts view — unchanged; "Show results" toggle lives here */}
+        <div className="res-row">
+          <button className={`res-btn ${showRes ? "on" : ""}`} onClick={() => setShowRes(!showRes)}>{showRes ? "✓ Showing results" : "Show results"}</button>
+          <span className="note">Correct picks turn green, wrong ones get crossed out — once results are entered.</span>
+        </div>
+        {sorted.map(c => (
+          <div className="wf-player" key={c.id}>
+            <div className="wf-name">{c.name} <span className="owner">· {c.owner}</span></div>
+            <div className="wf-cols">{wfRounds.map(([k, lab]) => { const list = c.ko[k] || [];
+              return (<div className={`wf-col ${k === "champ" ? "champ" : ""} ${k === "ko32" ? "wide" : ""}`} key={k}>
+                <h5>{lab}<b>{list.length}</b></h5><div className="wf-stack">
+                  {list.length ? list.map((t) => { let cls = "wf-team", mk = null;
+                    if (showRes) { const ok = (kr[k] || []).includes(t); cls += ok ? " correct" : " out"; mk = <span className="mk">{ok ? "✓" : "✕"}</span>; }
+                    return <div className={cls} key={t}><Fl t={t} /><span className="cn">{t}</span>{mk}</div>;
+                  }) : <div className="wf-team empty">—</div>}
+                </div></div>); })
+            }</div>
+          </div>
+        ))}
+      </>)}
     </div>
   );
 }
@@ -418,7 +574,7 @@ export default function App() {
   const [admin, setAdmin] = useState(false);
   const [lockAt, setLockAt] = useState(null);
   const [now, setNow] = useState(Date.now());
-  const [tab, setTab] = useState("groups");
+  const [tab, setTab] = useState("reveal");
   const [entries, setEntries] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [picks, setPicks] = useState({}); // { entryId: {gp, ko, tb} }

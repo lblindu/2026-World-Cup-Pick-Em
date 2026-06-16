@@ -110,3 +110,112 @@ export function teamGoals(groupResults = {}) {
 
 export const esc = (s) => String(s);
 export const flag = (t) => FLAG[t] || "";
+
+// ---- Schedule data & helpers -------------------------------------------
+const _S2A = { "Curacao":"Curaçao","Turkiye":"Türkiye","Congo DR":"DR Congo","Bosnia-Herzegovina":"Bosnia & Herz.","Ivory Coast":"Côte d'Ivoire" };
+
+export const TEAM_CODE = {
+  "Algeria":"ALG","Argentina":"ARG","Australia":"AUS","Austria":"AUT","Belgium":"BEL",
+  "Bosnia & Herz.":"BIH","Brazil":"BRA","Canada":"CAN","Cape Verde":"CPV","Colombia":"COL",
+  "DR Congo":"COD","Croatia":"CRO","Curaçao":"CUW","Czechia":"CZE","Ecuador":"ECU",
+  "Egypt":"EGY","England":"ENG","France":"FRA","Germany":"GER","Ghana":"GHA","Haiti":"HAI",
+  "Iran":"IRN","Iraq":"IRQ","Côte d'Ivoire":"CIV","Japan":"JPN","Jordan":"JOR","Mexico":"MEX",
+  "Morocco":"MAR","Netherlands":"NED","New Zealand":"NZL","Norway":"NOR","Panama":"PAN",
+  "Paraguay":"PAR","Portugal":"POR","Qatar":"QAT","Saudi Arabia":"KSA","Scotland":"SCO",
+  "Senegal":"SEN","South Africa":"RSA","South Korea":"KOR","Spain":"ESP","Sweden":"SWE",
+  "Switzerland":"SUI","Tunisia":"TUN","Türkiye":"TUR","United States":"USA","Uruguay":"URU",
+  "Uzbekistan":"UZB",
+};
+
+// Full 72-match group schedule. dt = local-naive US Eastern ISO string.
+export const SCHEDULE = (() => {
+  const raw = [
+    {g:"A",num:1, dt:"2026-06-11T15:00",home:"Mexico",        away:"South Africa",       md:1,loc:"Estadio Azteca, Mexico City"},
+    {g:"A",num:2, dt:"2026-06-11T22:00",home:"South Korea",   away:"Czechia",            md:1,loc:"Estadio Akron, Zapopan"},
+    {g:"B",num:3, dt:"2026-06-12T15:00",home:"Canada",        away:"Bosnia-Herzegovina", md:1,loc:"BMO Field, Toronto"},
+    {g:"D",num:4, dt:"2026-06-12T21:00",home:"United States", away:"Paraguay",           md:1,loc:"SoFi Stadium, Inglewood"},
+    {g:"B",num:5, dt:"2026-06-13T15:00",home:"Qatar",         away:"Switzerland",        md:1,loc:"Levi's Stadium, Santa Clara"},
+    {g:"C",num:6, dt:"2026-06-13T18:00",home:"Brazil",        away:"Morocco",            md:1,loc:"MetLife Stadium, East Rutherford"},
+    {g:"C",num:7, dt:"2026-06-13T21:00",home:"Haiti",         away:"Scotland",           md:1,loc:"Gillette Stadium, Foxborough"},
+    {g:"D",num:8, dt:"2026-06-13T23:59",home:"Australia",     away:"Turkiye",            md:1,loc:"BC Place, Vancouver"},
+    {g:"E",num:9, dt:"2026-06-14T13:00",home:"Germany",       away:"Curacao",            md:1,loc:"NRG Stadium, Houston"},
+    {g:"F",num:10,dt:"2026-06-14T16:00",home:"Netherlands",   away:"Japan",              md:1,loc:"AT&T Stadium, Arlington"},
+    {g:"E",num:11,dt:"2026-06-14T19:00",home:"Ivory Coast",   away:"Ecuador",            md:1,loc:"Lincoln Financial Field, Philadelphia"},
+    {g:"F",num:12,dt:"2026-06-14T22:00",home:"Sweden",        away:"Tunisia",            md:1,loc:"Estadio BBVA, Guadalupe"},
+    {g:"H",num:13,dt:"2026-06-15T12:00",home:"Spain",         away:"Cape Verde",         md:1,loc:"Mercedes-Benz Stadium, Atlanta"},
+    {g:"G",num:14,dt:"2026-06-15T15:00",home:"Belgium",       away:"Egypt",              md:1,loc:"Lumen Field, Seattle"},
+    {g:"H",num:15,dt:"2026-06-15T18:00",home:"Saudi Arabia",  away:"Uruguay",            md:1,loc:"Hard Rock Stadium, Miami Gardens"},
+    {g:"G",num:16,dt:"2026-06-15T21:00",home:"Iran",          away:"New Zealand",        md:1,loc:"SoFi Stadium, Inglewood"},
+    {g:"I",num:17,dt:"2026-06-16T15:00",home:"France",        away:"Senegal",            md:1,loc:"MetLife Stadium, East Rutherford"},
+    {g:"I",num:18,dt:"2026-06-16T18:00",home:"Iraq",          away:"Norway",             md:1,loc:"Gillette Stadium, Foxborough"},
+    {g:"J",num:19,dt:"2026-06-16T21:00",home:"Argentina",     away:"Algeria",            md:1,loc:"Arrowhead Stadium, Kansas City"},
+    {g:"J",num:20,dt:"2026-06-16T23:59",home:"Austria",       away:"Jordan",             md:1,loc:"Levi's Stadium, Santa Clara"},
+    {g:"K",num:21,dt:"2026-06-17T13:00",home:"Portugal",      away:"Congo DR",           md:1,loc:"NRG Stadium, Houston"},
+    {g:"L",num:22,dt:"2026-06-17T16:00",home:"England",       away:"Croatia",            md:1,loc:"AT&T Stadium, Arlington"},
+    {g:"L",num:23,dt:"2026-06-17T19:00",home:"Ghana",         away:"Panama",             md:1,loc:"BMO Field, Toronto"},
+    {g:"K",num:24,dt:"2026-06-17T22:00",home:"Uzbekistan",    away:"Colombia",           md:1,loc:"Estadio Azteca, Mexico City"},
+    {g:"A",num:25,dt:"2026-06-18T12:00",home:"Czechia",       away:"South Africa",       md:2,loc:"Mercedes-Benz Stadium, Atlanta"},
+    {g:"B",num:26,dt:"2026-06-18T15:00",home:"Switzerland",   away:"Bosnia-Herzegovina", md:2,loc:"SoFi Stadium, Inglewood"},
+    {g:"B",num:27,dt:"2026-06-18T18:00",home:"Canada",        away:"Qatar",              md:2,loc:"BC Place, Vancouver"},
+    {g:"A",num:28,dt:"2026-06-18T21:00",home:"Mexico",        away:"South Korea",        md:2,loc:"Estadio Akron, Zapopan"},
+    {g:"D",num:29,dt:"2026-06-19T15:00",home:"United States", away:"Australia",          md:2,loc:"Lumen Field, Seattle"},
+    {g:"C",num:30,dt:"2026-06-19T18:00",home:"Scotland",      away:"Morocco",            md:2,loc:"Gillette Stadium, Foxborough"},
+    {g:"C",num:31,dt:"2026-06-19T21:00",home:"Brazil",        away:"Haiti",              md:2,loc:"Lincoln Financial Field, Philadelphia"},
+    {g:"D",num:32,dt:"2026-06-19T23:59",home:"Turkiye",       away:"Paraguay",           md:2,loc:"Levi's Stadium, Santa Clara"},
+    {g:"F",num:33,dt:"2026-06-20T13:00",home:"Netherlands",   away:"Sweden",             md:2,loc:"NRG Stadium, Houston"},
+    {g:"E",num:34,dt:"2026-06-20T16:00",home:"Germany",       away:"Ivory Coast",        md:2,loc:"BMO Field, Toronto"},
+    {g:"E",num:35,dt:"2026-06-20T20:00",home:"Ecuador",       away:"Curacao",            md:2,loc:"Arrowhead Stadium, Kansas City"},
+    {g:"F",num:36,dt:"2026-06-20T23:59",home:"Tunisia",       away:"Japan",              md:2,loc:"Estadio BBVA, Guadalupe"},
+    {g:"H",num:37,dt:"2026-06-21T12:00",home:"Spain",         away:"Saudi Arabia",       md:2,loc:"Mercedes-Benz Stadium, Atlanta"},
+    {g:"G",num:38,dt:"2026-06-21T15:00",home:"Belgium",       away:"Iran",               md:2,loc:"SoFi Stadium, Inglewood"},
+    {g:"H",num:39,dt:"2026-06-21T18:00",home:"Uruguay",       away:"Cape Verde",         md:2,loc:"Hard Rock Stadium, Miami Gardens"},
+    {g:"G",num:40,dt:"2026-06-21T21:00",home:"New Zealand",   away:"Egypt",              md:2,loc:"BC Place, Vancouver"},
+    {g:"J",num:41,dt:"2026-06-22T13:00",home:"Argentina",     away:"Austria",            md:2,loc:"AT&T Stadium, Arlington"},
+    {g:"I",num:42,dt:"2026-06-22T17:00",home:"France",        away:"Iraq",               md:2,loc:"Lincoln Financial Field, Philadelphia"},
+    {g:"I",num:43,dt:"2026-06-22T20:00",home:"Norway",        away:"Senegal",            md:2,loc:"MetLife Stadium, East Rutherford"},
+    {g:"J",num:44,dt:"2026-06-22T23:00",home:"Jordan",        away:"Algeria",            md:2,loc:"Levi's Stadium, Santa Clara"},
+    {g:"K",num:45,dt:"2026-06-23T13:00",home:"Portugal",      away:"Uzbekistan",         md:2,loc:"NRG Stadium, Houston"},
+    {g:"L",num:46,dt:"2026-06-23T16:00",home:"England",       away:"Ghana",              md:2,loc:"Gillette Stadium, Foxborough"},
+    {g:"L",num:47,dt:"2026-06-23T19:00",home:"Panama",        away:"Croatia",            md:2,loc:"BMO Field, Toronto"},
+    {g:"K",num:48,dt:"2026-06-23T22:00",home:"Colombia",      away:"Congo DR",           md:2,loc:"Estadio Akron, Zapopan"},
+    {g:"B",num:49,dt:"2026-06-24T15:00",home:"Bosnia-Herzegovina",away:"Qatar",          md:3,loc:"Lumen Field, Seattle"},
+    {g:"B",num:50,dt:"2026-06-24T15:00",home:"Switzerland",   away:"Canada",             md:3,loc:"BC Place, Vancouver"},
+    {g:"C",num:51,dt:"2026-06-24T18:00",home:"Morocco",       away:"Haiti",              md:3,loc:"Mercedes-Benz Stadium, Atlanta"},
+    {g:"C",num:52,dt:"2026-06-24T18:00",home:"Scotland",      away:"Brazil",             md:3,loc:"Hard Rock Stadium, Miami Gardens"},
+    {g:"A",num:53,dt:"2026-06-24T21:00",home:"Czechia",       away:"Mexico",             md:3,loc:"Estadio Azteca, Mexico City"},
+    {g:"A",num:54,dt:"2026-06-24T21:00",home:"South Africa",  away:"South Korea",        md:3,loc:"Estadio BBVA, Guadalupe"},
+    {g:"E",num:55,dt:"2026-06-25T16:00",home:"Curacao",       away:"Ivory Coast",        md:3,loc:"Lincoln Financial Field, Philadelphia"},
+    {g:"E",num:56,dt:"2026-06-25T16:00",home:"Ecuador",       away:"Germany",            md:3,loc:"MetLife Stadium, East Rutherford"},
+    {g:"F",num:57,dt:"2026-06-25T19:00",home:"Japan",         away:"Sweden",             md:3,loc:"AT&T Stadium, Arlington"},
+    {g:"F",num:58,dt:"2026-06-25T19:00",home:"Tunisia",       away:"Netherlands",        md:3,loc:"Arrowhead Stadium, Kansas City"},
+    {g:"D",num:59,dt:"2026-06-25T22:00",home:"Paraguay",      away:"Australia",          md:3,loc:"Levi's Stadium, Santa Clara"},
+    {g:"D",num:60,dt:"2026-06-25T22:00",home:"Turkiye",       away:"United States",      md:3,loc:"SoFi Stadium, Inglewood"},
+    {g:"I",num:61,dt:"2026-06-26T15:00",home:"Norway",        away:"France",             md:3,loc:"Gillette Stadium, Foxborough"},
+    {g:"I",num:62,dt:"2026-06-26T15:00",home:"Senegal",       away:"Iraq",               md:3,loc:"BMO Field, Toronto"},
+    {g:"H",num:63,dt:"2026-06-26T20:00",home:"Cape Verde",    away:"Saudi Arabia",       md:3,loc:"NRG Stadium, Houston"},
+    {g:"H",num:64,dt:"2026-06-26T20:00",home:"Uruguay",       away:"Spain",              md:3,loc:"Estadio Akron, Zapopan"},
+    {g:"G",num:65,dt:"2026-06-26T23:00",home:"Egypt",         away:"Iran",               md:3,loc:"Lumen Field, Seattle"},
+    {g:"G",num:66,dt:"2026-06-26T23:00",home:"New Zealand",   away:"Belgium",            md:3,loc:"BC Place, Vancouver"},
+    {g:"L",num:67,dt:"2026-06-27T17:00",home:"Croatia",       away:"Ghana",              md:3,loc:"Lincoln Financial Field, Philadelphia"},
+    {g:"L",num:68,dt:"2026-06-27T17:00",home:"Panama",        away:"England",            md:3,loc:"MetLife Stadium, East Rutherford"},
+    {g:"K",num:69,dt:"2026-06-27T19:30",home:"Colombia",      away:"Portugal",           md:3,loc:"Hard Rock Stadium, Miami Gardens"},
+    {g:"K",num:70,dt:"2026-06-27T19:30",home:"Congo DR",      away:"Uzbekistan",         md:3,loc:"Mercedes-Benz Stadium, Atlanta"},
+    {g:"J",num:71,dt:"2026-06-27T22:00",home:"Algeria",       away:"Austria",            md:3,loc:"Arrowhead Stadium, Kansas City"},
+    {g:"J",num:72,dt:"2026-06-27T22:00",home:"Jordan",        away:"Argentina",          md:3,loc:"AT&T Stadium, Arlington"},
+  ];
+  return raw.map(m => {
+    const home = _S2A[m.home] || m.home, away = _S2A[m.away] || m.away;
+    const g = GROUPS.find(x => x.id === m.g);
+    const hi = g.teams.findIndex(t => t[0] === home);
+    const ai = g.teams.findIndex(t => t[0] === away);
+    const lo = Math.min(hi, ai), hi2 = Math.max(hi, ai);
+    return {
+      g: m.g, num: m.num, dt: m.dt, md: m.md,
+      home, away,                       // tournament home / away (for display)
+      matchHome: g.teams[lo][0],        // lower-idx team = "home" in match_id / group_predictions
+      matchAway: g.teams[hi2][0],       // higher-idx team = "away" in match_id
+      matchId: `${m.g}-${lo}-${hi2}`,
+      sf: hi > ai,                      // scoreFlipped: tournament home is match_id "away"
+    };
+  });
+})();
