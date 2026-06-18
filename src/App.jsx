@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   GROUPS, MATCHES, TOTAL_MATCHES, KO, ALL_TEAMS,
   FLAG, TEAM_GROUP, TEAM_CODE, SCHEDULE, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
@@ -8,6 +8,7 @@ import {
   getLockAt, loadMyEntries, createEntry, deleteEntry, loadEntryPicks,
   saveGroupPicks, saveKnockoutPicks, saveTiebreakers,
   loadEveryone, loadResults, saveGroupResult, saveKnockoutResults,
+  loadSyncHealth, setPollerPaused, loadFixtures, loadStandings, loadTopScorers,
 } from "./supabaseClient.js";
 
 const Fl = ({ t }) => FLAG[t] ? <span className={`fl fi fi-${FLAG[t]}`}></span> : null;
@@ -27,6 +28,16 @@ function fmtCountdown(ms) {
   const d = Math.floor(ms / 86400000), h = Math.floor(ms / 3600000) % 24,
     m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60;
   return `${d}d ${h}h ${m}m ${s}s`;
+}
+// "14s ago" / "3m ago" / "2h ago" — for Admin sync-health timestamps
+function relTime(iso) {
+  if (!iso) return "never";
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 0) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 // Detect a password-recovery link (captured synchronously before Supabase clears the URL hash)
@@ -270,17 +281,50 @@ function KnockoutBoard({ ko, onToggle, round, setRound, locked, tb, setTb, mode 
 const _ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const _fmtDate = s => new Date(s + 'T12:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
 const _fmtShort = dt => new Date(dt).toLocaleDateString('en-US', { month:'short', day:'numeric' });
-function _matchSt(m) {
-  const diff = Date.now() - new Date(m.dt).getTime();
-  if (diff < 0) return { st:'sched' };
-  if (diff < 120 * 60000) return { st:'live', min: Math.max(1, Math.floor(diff / 60000)) };
-  return { st:'ft' };
+
+// Live state now comes from api_fixtures, not a kickoff+120 estimate.
+const LIVE_ST = new Set(["1H", "HT", "2H", "ET", "P", "BT", "LIVE"]);
+const FINAL_ST = new Set(["FT", "AET", "PEN"]);
+// Convert an api_fixtures row (API home/away) into the app's lower-index
+// orientation by matching team name, so live scores line up with group_results
+// and picks ('home' = matchHome). Orientation-safe; never crosses the two.
+function _appScore(fx, m) {
+  if (!fx || fx.home_goals == null || fx.away_goals == null) return null;
+  if (fx.home_team === m.matchAway) return { h: fx.away_goals, a: fx.home_goals };
+  return { h: fx.home_goals, a: fx.away_goals };
+}
+// Compact "kicks off in" label for the Next-up banner.
+function _untilKick(iso, now) {
+  const ms = new Date(iso).getTime() - now;
+  if (ms <= 0) return "now";
+  const h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60;
+  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${Math.max(1, m)}m`;
+}
+// Minute/phase label for a live fixture header.
+const _liveLabel = (fx) => fx.status === "HT" ? "HT" : fx.elapsed ? `${fx.elapsed}'` : "LIVE";
+const _fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+// Shared per-match live/final state. Counted truth = group_results (sc); live
+// state is provisional and never overrides a locked result.
+function _colState(m, fxByMatch, gr) {
+  const fx = fxByMatch[m.matchId];
+  const sc = gr[m.matchId];
+  const isFinalFx = !!fx && (fx.is_final || FINAL_ST.has(fx.status));
+  const isFinal = !!sc || isFinalFx;
+  const isLive = !!fx && LIVE_ST.has(fx.status) && !isFinal;
+  const dsc = sc || (fx ? _appScore(fx, m) : null); // app-oriented score for display/winner
+  return { fx, sc, isFinal, isLive, dsc };
 }
 
 // ---------------------------------------------------------------- Reveal
-function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes }) {
+function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixtures = [], topScorers = [] }) {
   const [sub, setSub] = useState("groups");
   const gr = results.groupResults, kr = results.koResults;
+  // Live fixtures keyed by app match_id (group games only carry one).
+  const fxByMatch = {};
+  fixtures.forEach(f => { if (f.match_id) fxByMatch[f.match_id] = f; });
+  const colInfo = (m) => _colState(m, fxByMatch, gr);
 
   // Filter state — default to Date=today (or next game day)
   const SDATES = [...new Set(SCHEDULE.map(m => m.dt.slice(0,10)))].sort();
@@ -328,28 +372,64 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes }) {
     return ms.sort((a, b) => a.num - b.num);
   })();
 
-  // Live banner — recomputed on liveTick (state change re-renders component)
-  const liveM = SCHEDULE.find(m => _matchSt(m).st === "live");
+  // Three-state banner (§3.1), all from api_fixtures: live now → next up → last
+  // result. liveTick re-renders so the device-clock countdown stays fresh.
   const myFirst = mine[0];
-  let bannerEl;
-  if (!liveM) {
-    bannerEl = <div className="ev-banner calm">😌 No games on right now — time to relax. Go touch some grass.</div>;
-  } else {
-    const st = _matchSt(liveM);
-    const pick = myFirst?.gp[liveM.matchId];
-    let pickEl = null;
-    if (pick) {
-      const t = pick === "draw" ? null : pick === "home" ? liveM.matchHome : liveM.matchAway;
-      pickEl = <span className="ev-bpick"><span className="ev-blbl">Your pick</span>{t ? <><Fl t={t} /> {t}</> : "Draw"}</span>;
+  const nowMs = Date.now();
+  // Your-pick chip for a fixture, resolved to a team name (orientation-safe).
+  const pickChip = (fx, { mark } = {}) => {
+    if (!fx?.match_id || !myFirst) return null;
+    const m = SCHEDULE.find(s => s.matchId === fx.match_id);
+    const pick = m && myFirst.gp[fx.match_id];
+    if (!m || !pick) return null;
+    const t = pick === "draw" ? null : pick === "home" ? m.matchHome : m.matchAway;
+    let okEl = null;
+    if (mark) { // last-result ✓/✕ vs the counted/api result
+      const w = matchWinner(m, gr[fx.match_id] || _appScore(fx, m));
+      if (w) okEl = pick === w ? <span className="ev-bok">✓</span> : <span className="ev-bno">✕</span>;
     }
+    return <span className="ev-bpick"><span className="ev-blbl">Your pick</span>{t ? <><Fl t={t} /> {t}</> : "Draw"}{okEl}</span>;
+  };
+  const matchup = (fx, sep) => (
+    <span className="ev-bg"><Fl t={fx.home_team} /> <b>{fx.home_team}</b>{sep}<b>{fx.away_team}</b> <Fl t={fx.away_team} /></span>
+  );
+
+  const liveFx = fixtures.filter(f => LIVE_ST.has(f.status) && !f.is_final)
+    .sort((a, b) => (myFirst?.gp[b.match_id] ? 1 : 0) - (myFirst?.gp[a.match_id] ? 1 : 0))[0];
+  const nextFx = fixtures.filter(f => !f.is_final && !LIVE_ST.has(f.status) && f.kickoff_utc && new Date(f.kickoff_utc).getTime() > nowMs)
+    .sort((a, b) => new Date(a.kickoff_utc) - new Date(b.kickoff_utc))[0];
+  const lastFx = fixtures.filter(f => f.is_final || FINAL_ST.has(f.status))
+    .sort((a, b) => new Date(b.kickoff_utc) - new Date(a.kickoff_utc))[0];
+
+  let bannerEl;
+  if (liveFx) {
     bannerEl = (
       <div className="ev-banner live">
         <span className="ev-blab"><span className="ev-dot" /> LIVE NOW</span>
-        <span className="ev-bg"><Fl t={liveM.home} /> <b>{liveM.home}</b> <span className="ev-vs">vs</span> <b>{liveM.away}</b> <Fl t={liveM.away} /></span>
-        <span className="ev-bmin">{st.min}'</span>
-        {pickEl}
+        {matchup(liveFx, <span className="ev-score"> {liveFx.home_goals ?? 0}–{liveFx.away_goals ?? 0} </span>)}
+        <span className="ev-bmin">{_liveLabel(liveFx)}</span>
+        {pickChip(liveFx)}
       </div>
     );
+  } else if (nextFx) {
+    bannerEl = (
+      <div className="ev-banner next">
+        <span className="ev-blab calm">⏱ NEXT UP</span>
+        {matchup(nextFx, <span className="ev-vs"> vs </span>)}
+        <span className="ev-bmin">kicks off in {_untilKick(nextFx.kickoff_utc, nowMs)}</span>
+        {pickChip(nextFx)}
+      </div>
+    );
+  } else if (lastFx) {
+    bannerEl = (
+      <div className="ev-banner last">
+        <span className="ev-blab done">✓ LAST RESULT</span>
+        {matchup(lastFx, <span className="ev-score"> {lastFx.home_goals ?? 0}–{lastFx.away_goals ?? 0} </span>)}
+        {pickChip(lastFx, { mark: true })}
+      </div>
+    );
+  } else {
+    bannerEl = <div className="ev-banner calm">😌 No games on right now — time to relax. Go touch some grass.</div>;
   }
 
   const goals = teamGoals(gr);
@@ -390,22 +470,21 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes }) {
                 <tr>
                   <th className="ev-th-e">Entry</th>
                   {visMat.map(m => {
-                    const st = _matchSt(m);
-                    const sc = gr[m.matchId];
-                    const w = sc ? matchWinner(m, sc) : null;
+                    const { fx, isFinal, isLive, dsc } = colInfo(m);
+                    const w = isFinal && dsc ? matchWinner(m, dsc) : null; // bold winner only when final
                     // sf=true means tournament home is match_id "away"; flip score display accordingly
-                    const hg = sc ? (m.sf ? sc.a : sc.h) : null;
-                    const ag = sc ? (m.sf ? sc.h : sc.a) : null;
+                    const hg = dsc ? (m.sf ? dsc.a : dsc.h) : null;
+                    const ag = dsc ? (m.sf ? dsc.h : dsc.a) : null;
                     const homeWon = w && !m.sf ? w === "home" : w && m.sf ? w === "away" : false;
                     const awayWon = w && !m.sf ? w === "away" : w && m.sf ? w === "home" : false;
                     return (
-                      <th key={m.matchId} className="ev-th-m">
+                      <th key={m.matchId} className={`ev-th-m${isLive ? " live" : ""}`}>
                         <div className="ev-mh">
                           <div className="ev-mh-top">
                             <span className="ev-gtag">{m.g}</span>
-                            {st.st === "live" && <span className="ev-mst live"><span className="ev-dot" />{st.min}'</span>}
-                            {st.st === "ft"   && <span className="ev-mst ft">FT</span>}
-                            {st.st === "sched" && <span className="ev-mst sched">{_fmtShort(m.dt)}</span>}
+                            {isLive ? <span className="ev-mst live"><span className="ev-dot" />{_liveLabel(fx)}</span>
+                              : isFinal ? <span className="ev-mst ft">FT</span>
+                              : <span className="ev-mst sched">{_fmtShort(m.dt)}</span>}
                           </div>
                           <div className={`ev-tl${homeWon ? " win" : ""}`}>
                             <Fl t={m.home} /><span className="ev-tn">{m.home}</span><span className="ev-cd">{TEAM_CODE[m.home] || m.home}</span>
@@ -432,17 +511,29 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes }) {
                       </td>
                       {visMat.map(m => {
                         const pick = c.gp[m.matchId];
-                        const sc = gr[m.matchId];
-                        const w = sc ? matchWinner(m, sc) : null;
-                        if (!pick) return <td key={m.matchId} className="ev-td-k"><span className="ev-none">·</span></td>;
+                        if (!pick) {
+                          const { isLive } = colInfo(m);
+                          return <td key={m.matchId} className={`ev-td-k${isLive ? " live" : ""}`}><span className="ev-none">·</span></td>;
+                        }
+                        const { isFinal, isLive, dsc } = colInfo(m);
                         const isDraw = pick === "draw";
                         const pickedTeam = isDraw ? null : pick === "home" ? m.matchHome : m.matchAway;
-                        const state = w ? (pick === w ? "ok" : "no") : "pend";
-                        const icon = state === "ok" ? <span className="ev-ic ok">✓</span> : state === "no" ? <span className="ev-ic no">✕</span> : null;
+                        // Solid ✓/✕ only when final (counted). Live + currently-correct = glow.
+                        const finalW = isFinal && dsc ? matchWinner(m, dsc) : null;
+                        const liveW = isLive && dsc ? matchWinner(m, dsc) : null;
+                        let state;
+                        if (finalW) state = pick === finalW ? "ok" : "no";
+                        else if (isLive) state = liveW && pick === liveW ? "glow" : "livepend";
+                        else state = "pend";
+                        const marker = state === "ok" ? <span className="ev-ic ok">✓</span>
+                          : state === "no" ? <span className="ev-ic no">✕</span>
+                          : state === "glow" ? <span className="ev-livedot" /> : null;
+                        const tdCls = `ev-td-k${isLive ? " live" : ""}`
+                          + (state === "ok" ? " ok" : state === "no" ? " no" : state === "glow" ? " glow" : "");
                         return (
-                          <td key={m.matchId} className={`ev-td-k${state !== "pend" ? " " + state : ""}`}>
-                            <span className={`ev-chip${isDraw ? " draw" : ""}`}>
-                              {icon}
+                          <td key={m.matchId} className={tdCls}>
+                            <span className={`ev-chip${isDraw ? " draw" : ""}${state === "glow" ? " glow" : ""}`}>
+                              {marker}
                               {isDraw ? <span className="ev-dr">Draw</span> : <><Fl t={pickedTeam} /><span className="ev-tn">{pickedTeam}</span></>}
                             </span>
                           </td>
@@ -458,8 +549,16 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes }) {
 
         {topGoals.length > 0 && (
           <div className="goalbar" style={{ marginTop: 14 }}>
-            <span className="gb-lab">⚽ Most goals (group stage) — feeds the top-scoring-team tiebreaker</span>
+            <span className="gb-lab">⚽ Most goals by country (group stage) — feeds the top-scoring-team tiebreaker</span>
             <div className="gb-chips">{topGoals.map(([t, g]) => <span className="gb-chip" key={t}><Fl t={t} /><span className="cn">{t}</span><b>{g}</b></span>)}</div>
+          </div>
+        )}
+        {topScorers.length > 0 && (
+          <div className="goalbar" style={{ marginTop: 14, borderLeftColor: "var(--gold)" }}>
+            <span className="gb-lab">👟 Top scorers (players) — most goals so far · feeds the top-scorer tiebreaker</span>
+            <div className="gb-chips">{topScorers.slice(0, 6).map((p) => (
+              <span className="gb-chip" key={`${p.player}-${p.team}`}>{p.team && <Fl t={p.team} />}<span className="cn">{p.player}</span><b>{p.goals}</b></span>
+            ))}</div>
           </div>
         )}
       </>) : (<>
@@ -487,22 +586,316 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes }) {
   );
 }
 
-// ---------------------------------------------------------------- Leaderboard
-function Leaderboard({ everyone, myUserId, results }) {
-  const board = everyone.map((c) => ({ id: c.id, name: c.name, owner: c.owner, me: c.ownerId === myUserId,
-    ...scoreBreakdown(c.gp, c.ko, results.groupResults, results.koResults) })).sort((a, b) => b.total - a.total);
-  const BD = [["GR", "GR"], ["R32", "R32"], ["R16", "R16"], ["QF", "QF"], ["SF", "SF"], ["TH", "3RD"], ["FN", "FIN"]];
+// ---------------------------------------------------------------- Matchday dashboard
+// After lock, the Group Stage tab becomes a daily check-in for the active entry:
+// summary first (today's ✓/✕/live/upcoming + points), then that day's games as
+// state cards. Reads api_fixtures (today) + this entry's group_predictions.
+function MatchdayDashboard({ gp = {}, fixtures = [], results }) {
+  const gr = results.groupResults;
+  const fxByMatch = {};
+  fixtures.forEach((f) => { if (f.match_id) fxByMatch[f.match_id] = f; });
+
+  // Target the current date if it has games, else the next game day.
+  const SDATES = [...new Set(SCHEDULE.map((m) => m.dt.slice(0, 10)))].sort();
+  const todayStr = _ymd(new Date());
+  const targetDate = SDATES.includes(todayStr) ? todayStr : (SDATES.find((d) => d >= todayStr) || SDATES[SDATES.length - 1]);
+  const isToday = targetDate === todayStr;
+  const games = SCHEDULE.filter((m) => m.dt.slice(0, 10) === targetDate).sort((a, b) => a.num - b.num);
+
+  let correct = 0, wrong = 0, liveN = 0, upcoming = 0, pts = 0, livePend = 0;
+  const cards = games.map((m) => {
+    const pick = gp[m.matchId];
+    const { fx, isFinal, isLive, dsc } = _colState(m, fxByMatch, gr);
+    const finalW = isFinal && dsc ? matchWinner(m, dsc) : null;
+    const liveW = isLive && dsc ? matchWinner(m, dsc) : null;
+    const onTrack = isLive && pick && liveW && pick === liveW;
+    let state;
+    if (finalW) state = pick ? (pick === finalW ? "correct" : "wrong") : "final";
+    else if (isLive) state = "live";
+    else state = "upcoming";
+    if (state === "correct") { correct++; pts++; }
+    else if (state === "wrong") wrong++;
+    else if (state === "live") { liveN++; if (onTrack) livePend++; }
+    else if (state === "upcoming") upcoming++;
+    return { m, pick, fx, dsc, finalW, liveW, onTrack, state };
+  });
+
+  const pickTeam = (m, pick) => pick === "draw" ? "Draw" : pick === "home" ? m.matchHome : m.matchAway;
+
   return (
     <div className="fade">
-      <div className="head"><div className="h1">Leaderboard</div><div className="pill">Live standings</div></div>
-      <div className="card">{board.map((p, i) => (
+      <div className="head"><div className="h1">Matchday</div>
+        <div className="pill">{isToday ? "Today" : "Next up"} · {_fmtDate(targetDate)}</div></div>
+
+      <div className="dash">
+        <div className="counts">
+          {correct > 0 && <span className="ct ok">✓ {correct} correct</span>}
+          {wrong > 0 && <span className="ct no">✕ {wrong} wrong</span>}
+          {liveN > 0 && <span className="ct live"><span className="ev-livedot" />{liveN} live</span>}
+          {upcoming > 0 && <span className="ct soon">{upcoming} upcoming</span>}
+          <span className="ct tot">+{pts} today{livePend > 0 ? ` · +${livePend} live pending` : ""}</span>
+        </div>
+
+        <div className="cards">
+          {cards.map(({ m, pick, dsc, onTrack, state }) => {
+            const hg = dsc ? (m.sf ? dsc.a : dsc.h) : null;
+            const ag = dsc ? (m.sf ? dsc.h : dsc.a) : null;
+            const cardCls = state === "correct" ? "okc" : state === "wrong" ? "noc" : state === "live" ? "livec" : "";
+            const ko = m && (fxByMatch[m.matchId]?.kickoff_utc || m.dt);
+            let sub, res;
+            if (state === "live") {
+              sub = <><b style={{ color: "var(--red)" }}>{_liveLabel(fxByMatch[m.matchId])} LIVE</b></>;
+              res = (<><span className="pill live"><span className="ev-livedot" />You: {pick ? pickTeam(m, pick) : "—"}</span>
+                <span className={onTrack ? "dash-on" : "dash-off"}>{!pick ? "no pick" : onTrack ? "on track (+1)" : "trailing"}</span></>);
+            } else if (state === "correct") {
+              sub = "Full time";
+              res = (<><span className="pill ok"><span className="ev-ic ok">✓</span>You: {pickTeam(m, pick)}</span>
+                <span className="dash-on">+1</span></>);
+            } else if (state === "wrong") {
+              sub = "Full time";
+              res = (<><span className="pill no"><span className="ev-ic no">✕</span>You: {pickTeam(m, pick)}</span>
+                <span className="dash-off">+0</span></>);
+            } else if (state === "final") {
+              sub = "Full time";
+              res = <span className="pill soon">No pick</span>;
+            } else {
+              sub = _fmtTime(ko);
+              res = (<><span className="pill soon">You: {pick ? pickTeam(m, pick) : "—"}</span>
+                <span className="dash-dim">not started</span></>);
+            }
+            return (
+              <div className={`gcard ${cardCls}`} key={m.matchId}>
+                <div className="fx">
+                  <span className="fx-top"><Fl t={m.home} /> <b>{m.home}</b>
+                    {dsc ? <span className="fx-sc"> {hg}–{ag} </span> : <span className="fx-vs"> vs </span>}
+                    <b>{m.away}</b> <Fl t={m.away} /></span>
+                  <span className="sub">Group {m.g} · {sub}</span>
+                </div>
+                <div className="res">{res}</div>
+              </div>
+            );
+          })}
+        </div>
+        {games.length === 0 && <div className="empty">No group games scheduled.</div>}
+        <p className="note" style={{ marginTop: 12 }}>See all your picks any time under <b>Everyone's Picks</b>.</p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Leaderboard
+function Leaderboard({ everyone, myUserId, results, fixtures = [] }) {
+  const BD = [["GR", "GR"], ["R32", "R32"], ["R16", "R16"], ["QF", "QF"], ["SF", "SF"], ["TH", "3RD"], ["FN", "FIN"]];
+
+  // Provisional results from currently-live group matches (app-oriented).
+  // Never persisted — recomputed each render from api_fixtures.
+  const liveResults = {};
+  fixtures.forEach((f) => {
+    if (!f.match_id || f.is_final || !LIVE_ST.has(f.status)) return;
+    // Counted result wins: never let a still-"live" fixture shadow a locked
+    // group_results row (e.g. an admin-entered final the poller hasn't FT'd yet).
+    if (results.groupResults[f.match_id]) return;
+    const m = SCHEDULE.find((s) => s.matchId === f.match_id);
+    const sc = m && _appScore(f, m);
+    if (sc) liveResults[f.match_id] = sc;
+  });
+  const liveIds = Object.keys(liveResults);
+  const live = liveIds.length > 0;
+  const projResults = live ? { ...results.groupResults, ...liveResults } : results.groupResults;
+
+  // ---- Tiebreaker actuals, auto-graded from live data ----
+  // 1) Final total goals (from the Final fixture), 2) top-scoring team (goals
+  // across all completed matches), 3) tournament top scorer (top_scorers cache).
+  const norm = (s) => String(s || "").trim().toLowerCase();
+  const teamGoalsAll = {};
+  let finalTotal = null;
+  fixtures.forEach((f) => {
+    if (!(f.is_final || FINAL_ST.has(f.status))) return;
+    if (f.home_goals != null) teamGoalsAll[f.home_team] = (teamGoalsAll[f.home_team] || 0) + f.home_goals;
+    if (f.away_goals != null) teamGoalsAll[f.away_team] = (teamGoalsAll[f.away_team] || 0) + f.away_goals;
+    if (f.round && norm(f.round) === "final") finalTotal = (f.home_goals || 0) + (f.away_goals || 0);
+  });
+  const scorerVal = (name) => {
+    const n = norm(name); if (!n) return 0;
+    const hit = topScorers.find((p) => norm(p.player) === n) || topScorers.find((p) => { const pn = norm(p.player); return pn.includes(n) || n.includes(pn); });
+    return hit ? hit.goals : 0;
+  };
+  const topScorerActual = topScorers[0] || null;
+  const topTeamActual = Object.entries(teamGoalsAll).sort((a, b) => b[1] - a[1])[0] || null;
+  const finalKnown = finalTotal != null;
+  const tbActive = !!topScorerActual || !!topTeamActual || finalKnown;
+
+  const rows = everyone.map((c) => {
+    const locked = scoreBreakdown(c.gp, c.ko, results.groupResults, results.koResults);
+    const projTotal = live ? scoreBreakdown(c.gp, c.ko, projResults, results.koResults).total : locked.total;
+    const tb = c.tb || {};
+    return {
+      id: c.id, name: c.name, owner: c.owner, me: c.ownerId === myUserId, ...locked,
+      lockedTotal: locked.total, projTotal, swing: projTotal - locked.total,
+      hasLivePick: live && liveIds.some((mid) => c.gp[mid]),
+      // tiebreak metrics: final = abs diff (smaller better); team/scorer = goals (higher better)
+      tFinal: (finalKnown && tb.final_total_goals != null) ? Math.abs(tb.final_total_goals - finalTotal) : null,
+      tTeam: tb.top_scoring_team ? (teamGoalsAll[tb.top_scoring_team] || 0) : 0,
+      tScorer: scorerVal(tb.top_scorer),
+    };
+  });
+  // Competition ranking (ties share a rank), computed for locked and projected.
+  const rankBy = (r, key) => 1 + rows.filter((x) => x[key] > r[key]).length;
+  rows.forEach((r) => { r.move = rankBy(r, "lockedTotal") - rankBy(r, "projTotal"); });
+  // Sort: points, then tiebreakers in order (final goals → top team → top scorer), then name.
+  const cmpFinal = (a, b) => { if (!finalKnown) return 0; const av = a.tFinal ?? Infinity, bv = b.tFinal ?? Infinity; return av === bv ? 0 : av - bv; };
+  rows.sort((a, b) => b.projTotal - a.projTotal || b.lockedTotal - a.lockedTotal
+    || cmpFinal(a, b) || (b.tTeam - a.tTeam) || (b.tScorer - a.tScorer) || a.name.localeCompare(b.name));
+  // Flag rows level on points with a neighbour (i.e. order decided by tiebreakers).
+  rows.forEach((r, i) => { r.tied = tbActive && ((i > 0 && rows[i - 1].projTotal === r.projTotal) || (i < rows.length - 1 && rows[i + 1].projTotal === r.projTotal)); });
+
+  return (
+    <div className="fade">
+      <div className="head"><div className="h1">Leaderboard</div>
+        <div className="pill">{live ? `Live · ${liveIds.length} match${liveIds.length > 1 ? "es" : ""} on` : "Standings"}</div></div>
+      {live && (
+        <div className="lb-prov-note"><span className="i">i</span>
+          <span><b>Live scoring is provisional.</b> Points and ranks update as goals go in and only lock at full time —
+            a late goal or a VAR call can still change them.</span></div>
+      )}
+      <div className="card">{rows.map((p, i) => (
         <div className={`lb-row ${p.me ? "me" : ""}`} key={p.id}>
-          <div className="lb-rank">{i + 1}</div>
-          <div className="lb-main"><div className="lb-name">{p.name} <span className="owner">· {p.owner}</span></div>
-            <div className="lb-bd">{BD.map(([k, lab]) => <span className="bd" key={k}>{lab} <b>{p[k]}</b></span>)}</div></div>
-          <div className="lb-score">{p.total}</div></div>))}
-        {board.length === 0 && <p className="note">No entries yet.</p>}</div>
-      <p className="note">Breakdown by stage — GR group · R32/R16/QF/SF teams correct each round · 3RD third-place · FIN finalists + champion. Updates from entered results.</p>
+          <div className="lb-rank">{i + 1}
+            {live && <span className={`lb-mv ${p.move > 0 ? "up" : p.move < 0 ? "dn" : "eq"}`}>
+              {p.move > 0 ? `▲${p.move}` : p.move < 0 ? `▼${-p.move}` : "—"}</span>}
+          </div>
+          <div className="lb-main"><div className="lb-name">{p.name} <span className="owner">· {p.owner}</span>
+              {p.tied && <span className="lb-tb" title="Level on points — order set by tiebreakers">tiebreak</span>}</div>
+            <div className="lb-bd">{BD.map(([k, lab]) => <span className="bd" key={k}>{lab} <b>{p[k]}</b></span>)}
+              {live && (p.swing > 0
+                ? <span className="lb-live up">▲ +{p.swing} live</span>
+                : p.hasLivePick
+                  ? <span className="lb-live flat">live · no points yet</span>
+                  : <span className="lb-live flat">— no live pick</span>)}
+            </div></div>
+          <div className="lb-score">{live ? p.projTotal : p.lockedTotal}
+            {live && p.swing > 0 && <span className="lb-from">was {p.lockedTotal}</span>}</div>
+        </div>))}
+        {rows.length === 0 && <p className="note">No entries yet.</p>}</div>
+
+      {tbActive && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <h3>Tiebreakers <span className="tb-auto">auto-graded</span></h3>
+          <p className="dim">Applied in order whenever entries are level on points — pulled live from the data, no manual entry.</p>
+          <div className="rule"><span>1 · Total goals in the Final</span><b>{finalKnown ? finalTotal : "—"}</b></div>
+          <div className="rule"><span>2 · Top-scoring team</span><b>{topTeamActual ? `${topTeamActual[0]} · ${topTeamActual[1]}` : "—"}</b></div>
+          <div className="rule"><span>3 · Tournament top scorer</span><b>{topScorerActual ? `${topScorerActual.player} · ${topScorerActual.goals}` : "—"}</b></div>
+        </div>
+      )}
+
+      <p className="note">Breakdown by stage — GR group · R32/R16/QF/SF teams correct each round · 3RD third-place · FIN finalists + champion.
+        {live ? " Live points come from in-progress group matches and are not yet counted." : " Updates from entered results."}</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Standings
+const _formChips = (form) => {
+  if (!form) return null;
+  return String(form).replace(/[^WDL]/gi, "").toUpperCase().slice(-5).split("").map((c, i) =>
+    <span key={i} className={c === "W" ? "w" : c === "L" ? "l" : "d"}>{c}</span>);
+};
+function Standings({ standings = [], fixtures = [], results, myKo32 = [], entryName }) {
+  const gr = results.groupResults;
+  // Teams currently playing (for the LIVE chip).
+  const liveTeams = new Set();
+  fixtures.forEach((f) => { if (LIVE_ST.has(f.status) && !f.is_final) { liveTeams.add(f.home_team); liveTeams.add(f.away_team); } });
+  const byGroup = {};
+  standings.forEach((r) => { (byGroup[r.grp] ||= []).push(r); });
+  const ko32 = new Set(myKo32);
+
+  // Compute a group table from our counted results (written at FT, always fresh).
+  // Ranks by points → GD → GF (head-to-head not modelled; rare to differ early).
+  const computeTable = (g) => {
+    const stat = {};
+    g.teams.forEach(([t]) => (stat[t] = { team: t, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, Pts: 0, form: "" }));
+    SCHEDULE.filter((s) => s.g === g.id).sort((a, b) => a.num - b.num).forEach((m) => {
+      const sc = gr[m.matchId];
+      if (!sc || sc.h == null || sc.a == null) return; // sc oriented to matchHome (lower index)
+      const H = stat[m.matchHome], A = stat[m.matchAway];
+      H.P++; A.P++; H.GF += sc.h; H.GA += sc.a; A.GF += sc.a; A.GA += sc.h;
+      if (sc.h > sc.a) { H.W++; H.Pts += 3; A.L++; H.form += "W"; A.form += "L"; }
+      else if (sc.a > sc.h) { A.W++; A.Pts += 3; H.L++; A.form += "W"; H.form += "L"; }
+      else { H.D++; A.D++; H.Pts++; A.Pts++; H.form += "D"; A.form += "D"; }
+    });
+    const rows = Object.values(stat).map((s) => ({ ...s, GD: s.GF - s.GA }));
+    rows.sort((a, b) => b.Pts - a.Pts || b.GD - a.GD || b.GF - a.GF || a.team.localeCompare(b.team));
+    rows.forEach((r, i) => (r.rank = i + 1));
+    return rows;
+  };
+  const cacheTable = (g) => (byGroup[g.id] || []).slice().sort((a, b) => a.rank - b.rank)
+    .map((r) => ({ team: r.app_team, rank: r.rank, P: r.played, W: r.win, D: r.draw, L: r.lose, GF: r.gf, GA: r.ga, GD: r.gd, Pts: r.points, form: r.form }));
+
+  // Prefer whichever source knows about more games. group_results is FT-fresh,
+  // so this self-heals when API-Football's /standings lags behind the results.
+  const tableFor = (g) => {
+    const comp = computeTable(g), cache = cacheTable(g);
+    const compP = comp.reduce((s, r) => s + r.P, 0), cacheP = cache.reduce((s, r) => s + r.P, 0);
+    if (compP > cacheP) return { rows: comp, played: compP };
+    if (cache.length) return { rows: cache, played: cacheP };
+    return { rows: comp, played: compP };
+  };
+
+  const hasAny = Object.keys(gr).length > 0 || standings.length > 0;
+
+  return (
+    <div className="fade">
+      <div className="head"><div className="h1">Standings</div>
+        <div className="pill">{hasAny ? "Live tables" : "Group tables"}</div></div>
+      {!hasAny && (
+        <div className="lockbar"><span className="ico">📊</span>
+          <span className="txt"><b>Tables fill in once matches kick off.</b> They update within a minute of each final whistle.</span></div>
+      )}
+      {ko32.size > 0 && (
+        <p className="poolnote">“If it holds” notes below cross-reference your Round-of-32 picks{entryName ? ` for ${entryName}` : ""} — switch entries on the Knockouts tab to change which bracket they read.</p>
+      )}
+      {GROUPS.map((g) => {
+        const { rows, played } = tableFor(g);
+        const myHere = g.teams.map((t) => t[0]).filter((t) => ko32.has(t));
+        return (
+          <div className="st-card" key={g.id}>
+            <table className="st">
+              <thead><tr><th>Group {g.id}</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th><th>Form</th></tr></thead>
+              <tbody>
+                {rows.map((r) => {
+                  const qual = r.rank <= 2 ? "q" : r.rank === 3 ? "qt" : "";
+                  return (
+                    <tr key={r.team} className={qual}>
+                      <td><span className="st-team"><span className="st-rk">{r.rank}</span><Fl t={r.team} />
+                        <span className="st-tn">{r.team}</span>
+                        {ko32.has(r.team) && <span className="st-mine">pick</span>}
+                        {liveTeams.has(r.team) && <span className="ev-mst live"><span className="ev-dot" />LIVE</span>}</span></td>
+                      <td>{r.P}</td><td>{r.W}</td><td>{r.D}</td><td>{r.L}</td>
+                      <td>{r.GD > 0 ? `+${r.GD}` : r.GD}</td><td className="st-pts">{r.Pts}</td>
+                      <td className="form">{_formChips(r.form)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {played > 0 && ko32.size > 0 && (
+              <div className="koimp"><span className="ph">Your picks</span>
+                <div>
+                  <span className="ki-lead">How <b>your</b> Round-of-32 picks would fare if this group ended at the current standings:</span>
+                  {myHere.length === 0
+                  ? <span className="ki-dim">You didn't pick any team from this group to reach the Round of 32.</span>
+                  : myHere.map((t) => {
+                      const r = rows.find((x) => x.team === t);
+                      const cls = r.rank <= 2 ? "adv" : r.rank === 3 ? "third" : "out";
+                      const mk = r.rank <= 2 ? "✓ your pick advances" : r.rank === 3 ? "3rd · in the running" : "✕ your pick goes out";
+                      return <span className={`ki-chip ${cls}`} key={t}><Fl t={t} /> {t} <b>{mk}</b></span>;
+                    })}
+                  <span className="ki-dim">Top 2 qualify; 3rd place competes for the 8 best-third-placed spots.</span>
+                </div></div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -531,6 +924,120 @@ function Rules() {
   );
 }
 
+// ---------------------------------------------------------------- Admin: API sync health
+// Self-contained: reads sync_state + unmapped_teams on its own, refreshes silently
+// every 20s, and offers the poller kill-switch. Read-only otherwise — the manual
+// score-entry path stays the fallback if the feed hiccups.
+function AdminHealth() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [, setTick] = useState(0); // re-render so "Xs ago" stays current
+
+  async function load(silent) {
+    if (!silent) setLoading(true);
+    try { setData(await loadSyncHealth()); setErr(""); }
+    catch (e) { setErr(e.message || "Could not read sync health."); }
+    if (!silent) setLoading(false);
+  }
+  useEffect(() => {
+    load(false);
+    const data = setInterval(() => load(true), 20000); // refresh data
+    const clock = setInterval(() => setTick((n) => n + 1), 5000); // tick rel-times
+    return () => { clearInterval(data); clearInterval(clock); };
+  }, []);
+
+  const ss = data?.sync;
+  const unmapped = data?.unmapped || [];
+  const paused = !!ss?.poller_paused;
+  const codeOk = ss?.last_status_code == null || ss.last_status_code === 200;
+
+  async function togglePause() {
+    if (!ss) return;
+    const next = !paused;
+    if (next && !confirm("Pause the live poller? Live scores stop updating until you resume.")) return;
+    setBusy(true);
+    try { await setPollerPaused(next); await load(true); }
+    catch (e) { setErr(e.message || "Couldn't change the poller (RLS may block writes from the browser)."); }
+    setBusy(false);
+  }
+
+  // Headline status. The poller self-gates (it only calls the API inside a live
+  // window), so a stale last-success is normal between matches and isn't an error.
+  let status;
+  if (loading && !ss) status = { dot: "", label: "Checking…" };
+  else if (!ss) status = { dot: "warn", label: "No sync_state row" };
+  else if (paused) status = { dot: "warn", label: "Paused" };
+  else if (!codeOk) status = { dot: "bad", label: `API error (${ss.last_status_code})` };
+  else status = { dot: "ok", label: "Healthy" };
+
+  return (
+    <div className="ah-wrap">
+      <div className="ah-head">
+        <p className="poolnote" style={{ margin: 0 }}>
+          Live feed health, read from <code>sync_state</code> and <code>unmapped_teams</code>. The
+          unmapped-teams alarm is the one that quietly stops results from scoring — clear it first.
+        </p>
+        <button className="ah-btn" disabled={loading} onClick={() => load(false)}>
+          {loading ? "…" : "↻ Refresh"}
+        </button>
+      </div>
+
+      {err && <div className="ah-err">⚠ {err}</div>}
+
+      <div className="ah-grid">
+        <div className="ah-card">
+          <h4>Sync status</h4>
+          <div className="ah-row"><span className="k">Feed</span>
+            <span className="v"><span className={`ah-dot ${status.dot}`} />{status.label}</span></div>
+          <div className="ah-row"><span className="k">Last poll</span>
+            <span className="v">{relTime(ss?.last_poll_at)}</span></div>
+          <div className="ah-row"><span className="k">Last 200 OK</span>
+            <span className="v">{relTime(ss?.last_success_at)}</span></div>
+          <div className="ah-row"><span className="k">Last status code</span>
+            <span className="v">{ss?.last_status_code ?? "—"}</span></div>
+          <div className="ah-row"><span className="k">Live window</span>
+            <span className="v"><span className={`ah-dot ${ss?.live_window_open ? "ok" : ""}`} />
+              {ss?.live_window_open ? "Open" : "Closed"}</span></div>
+          <div className="ah-row"><span className="k">Last FT written</span>
+            <span className="v">{ss?.last_ft_written || "—"}</span></div>
+          <div className="ah-row"><span className="k">Requests today</span>
+            <span className="v">{ss?.requests_today ?? 0}</span></div>
+        </div>
+
+        <div className="ah-card">
+          <h4>Attention</h4>
+          {unmapped.length === 0 ? (
+            <div className="ah-oknote">✓ All teams mapped — nothing to fix.</div>
+          ) : (
+            unmapped.map((t) => (
+              <div className="ah-warn" key={t.api_team_id}>⚠
+                <div><b>Unmapped team</b> — “{t.api_name}” (api id {t.api_team_id}) isn’t in{" "}
+                  <code>team_map</code>. Its results won’t score until mapped in the database.</div>
+              </div>
+            ))
+          )}
+
+          <h4 style={{ marginTop: 18 }}>Poller</h4>
+          <p className="ah-sub">
+            {paused
+              ? "The live poller is paused — no live scores will update."
+              : "The live poller runs every minute and self-gates around match windows."}
+          </p>
+          <button className={`ah-btn ${paused ? "go" : "red"}`} disabled={busy || !ss} onClick={togglePause}>
+            {busy ? "…" : paused ? "▶ Resume poller" : "⏸ Pause poller"}
+          </button>
+          <p className="ah-fineprint">
+            Manual score entry under <b>Group Results</b> / <b>Knockout Results</b> stays available as a
+            fallback if the feed is down.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, setAdminRound, onSaveKo, onSaveScores }) {
   const [view, setView] = useState("commish");
   if (!admin) return (<div className="fade"><div className="head"><div className="h1">🔒 Admin</div></div>
@@ -540,9 +1047,10 @@ function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, 
       <div className="head"><div className="h1">🔒 Admin · Results</div><div className="pill">Commissioner</div></div>
       <div className="lockbar"><span className="ico">🔒</span>
         <span className="txt"><b>Restricted page.</b> Only commissioners can edit this. Add admins from the Supabase dashboard.</span></div>
-      <div className="seg"><button className={view === "commish" ? "on" : ""} onClick={() => setView("commish")}>Group Results</button>
+      <div className="seg"><button className={view === "health" ? "on" : ""} onClick={() => setView("health")}>API Health</button>
+        <button className={view === "commish" ? "on" : ""} onClick={() => setView("commish")}>Group Results</button>
         <button className={view === "ko" ? "on" : ""} onClick={() => setView("ko")}>Knockout Results</button></div>
-      {view === "commish" ? (<>
+      {view === "health" ? <AdminHealth /> : view === "commish" ? (<>
         <p className="poolnote">Enter the final score for each match as games finish. Winner, points, and goal totals update automatically.</p>
         {GROUPS.map((g) => (<div className="gt-card" key={g.id}>
           <div className="gt-title"><span className="gt-badge">{g.id}</span>Group {g.id}</div>
@@ -565,6 +1073,121 @@ function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, 
   );
 }
 
+// ---------------------------------------------------------------- Notifications (client-side, §3.8)
+const _ordinal = (n) => { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+const _ncAgo = (ts) => { const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return "now"; const m = Math.floor(s / 60); if (m < 60) return `${m}m`; const h = Math.floor(m / 60); if (h < 24) return `${h}h`; return `${Math.floor(h / 24)}d`; };
+
+// Derives kickoff / full-time / rank-movement alerts client-side by diffing the
+// polled fixtures+results between renders. Surfaces them in an in-app feed and
+// (if the user opts in) fires Web Notifications. Server push can replace this
+// later via the notifications table; nothing here is persisted.
+function NotificationCenter({ fixtures = [], results, everyone = [], userId, locked }) {
+  const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const [perm, setPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+  const seen = useRef(new Set());     // dedupe kickoff/FT events by fixture id
+  const lastRank = useRef(null);      // last projected rank (movement alerts)
+  const inited = useRef(false);       // skip firing for state already present on load
+
+  useEffect(() => {
+    if (!locked) return;
+    const now = Date.now();
+    const gr = results.groupResults;
+    const mine = everyone.filter((c) => c.ownerId === userId).sort((a, b) => a.name.localeCompare(b.name));
+    const primary = mine[0];
+    const gp = primary?.gp || {};
+    const fresh = [];
+    const push = (key, type, title, body) => { if (seen.current.has(key)) return; seen.current.add(key); fresh.push({ key, type, title, body, ts: now }); };
+
+    const groupCtx = (f) => {
+      const m = f.match_id && SCHEDULE.find((s) => s.matchId === f.match_id);
+      if (!m) return {};
+      const pick = gp[m.matchId];
+      const pickTeam = pick ? (pick === "draw" ? "Draw" : pick === "home" ? m.matchHome : m.matchAway) : null;
+      const sc = gr[m.matchId] || _appScore(f, m);
+      const w = sc ? matchWinner(m, sc) : null;
+      return { pickTeam, correct: pick && w ? pick === w : null };
+    };
+
+    fixtures.forEach((f) => {
+      if (f.status === "NS" && f.kickoff_utc) {
+        const mins = Math.round((new Date(f.kickoff_utc).getTime() - now) / 60000);
+        if (mins > 0 && mins <= 15) {
+          const { pickTeam } = groupCtx(f);
+          push(`kick-${f.api_id}`, "kick", `${f.home_team} v ${f.away_team} kicks off soon`,
+            `Kicks off in ~${mins} min.${pickTeam ? ` You picked ${pickTeam}.` : ""}`);
+        }
+      }
+      if (f.is_final || FINAL_ST.has(f.status)) {
+        const { pickTeam, correct } = groupCtx(f);
+        const body = pickTeam == null ? "Result is in."
+          : correct ? `Your pick ${pickTeam} was right — +1, now locked.`
+          : `Your pick ${pickTeam} didn't land this time.`;
+        push(`ft-${f.api_id}`, "ft", `Full time: ${f.home_team} ${f.home_goals ?? 0}–${f.away_goals ?? 0} ${f.away_team}`, body);
+      }
+    });
+
+    // Rank movement — only on improvement, only while a match is live (provisional).
+    if (primary) {
+      const liveResults = {};
+      fixtures.forEach((f) => {
+        if (!f.match_id || f.is_final || !LIVE_ST.has(f.status) || gr[f.match_id]) return;
+        const m = SCHEDULE.find((s) => s.matchId === f.match_id);
+        const sc = m && _appScore(f, m);
+        if (sc) liveResults[f.match_id] = sc;
+      });
+      const anyLive = Object.keys(liveResults).length > 0;
+      const proj = (c) => scoreBreakdown(c.gp, c.ko, { ...gr, ...liveResults }, results.koResults).total;
+      const myTotal = proj(primary);
+      const rank = 1 + everyone.filter((c) => proj(c) > myTotal).length;
+      if (inited.current && anyLive && lastRank.current != null && rank < lastRank.current) {
+        push(`move-${rank}-${now}`, "move", `You moved up to ${_ordinal(rank)} (provisional)`,
+          `${primary.name} is ${_ordinal(rank)} if live scores hold.`);
+      }
+      lastRank.current = rank;
+    }
+
+    if (!inited.current) { inited.current = true; return; } // seed only; don't surface pre-existing state
+    if (fresh.length) {
+      setItems((prev) => [...fresh.reverse(), ...prev].slice(0, 30));
+      setUnread((u) => u + fresh.length);
+      if (perm === "granted") fresh.forEach((n) => { try { new Notification(n.title, { body: n.body, tag: n.key }); } catch { /* ignore */ } });
+    }
+  }, [fixtures, results, everyone, userId, locked, perm]);
+
+  async function enable() { try { setPerm(await Notification.requestPermission()); } catch { /* ignore */ } }
+
+  return (
+    <div className="nc">
+      <button className="nc-bell" onClick={() => { setOpen((o) => !o); setUnread(0); }} title="Notifications">
+        🔔{unread > 0 && <span className="nc-badge">{unread > 9 ? "9+" : unread}</span>}
+      </button>
+      {open && (<>
+        <div className="nc-backdrop" onClick={() => setOpen(false)} />
+        <div className="nc-panel">
+          <div className="nc-top"><span>Notifications</span>
+            {perm === "default" && <button className="nc-enable" onClick={enable}>Enable browser alerts</button>}
+            {perm === "granted" && <span className="nc-state on">Alerts on</span>}
+            {perm === "denied" && <span className="nc-state off">Blocked in browser</span>}
+          </div>
+          <div className="nc-list">
+            {items.length === 0
+              ? <div className="nc-empty">No alerts yet. Kickoffs, full-time results, and rank moves show up here.</div>
+              : items.map((n) => (
+                <div className="nt" key={n.key}>
+                  <div className={`nc-ico ${n.type}`}>{n.type === "kick" ? "⏰" : n.type === "ft" ? "✅" : "📈"}</div>
+                  <div className="tx"><div className="t">{n.title}</div><div className="s">{n.body}</div></div>
+                  <span className="ago">{_ncAgo(n.ts)}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      </>)}
+    </div>
+  );
+}
+
 // ================================================================ App
 export default function App() {
   const [session, setSession] = useState(null);
@@ -581,6 +1204,9 @@ export default function App() {
   const [koRound, setKoRound] = useState("ko32");
   const [everyone, setEveryone] = useState([]);
   const [results, setResults] = useState({ groupResults: {}, koResults: {} });
+  const [fixtures, setFixtures] = useState([]);
+  const [standings, setStandings] = useState([]);
+  const [topScorers, setTopScorers] = useState([]);
   const [adminScores, setAdminScores] = useState({});
   const [adminKo, setAdminKo] = useState(emptyKo());
   const [adminRound, setAdminRound] = useState("ko32");
@@ -603,6 +1229,23 @@ export default function App() {
   }, []);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
+  // Live poll: once picks lock (tournament underway), refresh fixtures + results
+  // every 30s so the banner, glow, and final ✓/✕ stay current without a reload.
+  useEffect(() => {
+    if (!session || !locked) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const [fx, res, stnd, ts] = await Promise.all([
+          loadFixtures(), loadResults(), loadStandings(), loadTopScorers().catch(() => topScorers),
+        ]);
+        if (alive) { setFixtures(fx); setResults(res); setStandings(stnd); setTopScorers(ts); }
+      } catch { /* transient — keep last good data */ }
+    };
+    const t = setInterval(tick, 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [session, locked]);
+
   useEffect(() => {
     if (!session) { setUserId(null); setLoading(false); return; }
     (async () => {
@@ -611,10 +1254,14 @@ export default function App() {
       setUserId(user.id);
       const name = await ensureProfile(user);
       setOwnerName(name);
-      const [myEntries, lock, adm, ppl, res] = await Promise.all([
+      const [myEntries, lock, adm, ppl, res, fx, stnd, ts] = await Promise.all([
         loadMyEntries(user.id), getLockAt(), isAdmin(user.id), loadEveryone(), loadResults(),
+        loadFixtures().catch(() => []), loadStandings().catch(() => []), loadTopScorers().catch(() => []),
       ]);
       setEntries(myEntries);
+      setFixtures(fx);
+      setStandings(stnd);
+      setTopScorers(ts);
       const map = {};
       await Promise.all(myEntries.map(async (e) => { map[e.id] = await loadEntryPicks(e.id); }));
       Object.keys(map).forEach((id) => { map[id].ko = { ...emptyKo(), ...map[id].ko }; });
@@ -677,7 +1324,7 @@ export default function App() {
   if (!session) return <AuthScreen />;
 
   const tabs = [["groups", "Group Stage"], ["knockouts", "Knockouts"], ["reveal", "Everyone's Picks"],
-    ["leaderboard", "Leaderboard"], ["rules", "Rules"]];
+    ["leaderboard", "Leaderboard"], ["standings", "Standings"], ["rules", "Rules"]];
   if (admin) tabs.push(["admin", "🔒 Admin"]);
   const editing = tab === "groups" || tab === "knockouts";
   const showSave = editing && !locked && activeId;
@@ -687,7 +1334,10 @@ export default function App() {
     <>
       <div className="top">
         <div className="top-in"><div className="logo">WC<b>26</b> Pick'Em</div>
-          <div className="who">{ownerName} · <a style={{ color: "var(--blue)", cursor: "pointer" }} onClick={() => signOut()}>sign out</a></div></div>
+          <div className="top-right">
+            <NotificationCenter fixtures={fixtures} results={results} everyone={everyone} userId={userId} locked={locked} />
+            <div className="who">{ownerName} · <a style={{ color: "var(--blue)", cursor: "pointer" }} onClick={() => signOut()}>sign out</a></div>
+          </div></div>
         <div className="tabs">{tabs.map(([k, l]) => (<button key={k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}>{l}</button>))}</div>
       </div>
 
@@ -697,10 +1347,13 @@ export default function App() {
           <LockBar lockAt={lockAt} now={now} /></>)}
         {noEntry && <div className="empty" style={{ marginTop: 14 }}>Create an entry above to start making picks. You can have up to {MAX_ENTRIES}.</div>}
 
-        {tab === "groups" && activeId && <GroupStage gp={A.gp} onPick={pickMatch} locked={locked} />}
+        {tab === "groups" && activeId && (locked
+          ? <MatchdayDashboard gp={A.gp} fixtures={fixtures} results={results} />
+          : <GroupStage gp={A.gp} onPick={pickMatch} locked={locked} />)}
         {tab === "knockouts" && activeId && <KnockoutBoard ko={A.ko} onToggle={toggleTeamPick} round={koRound} setRound={setKoRound} locked={locked} tb={A.tb} setTb={setTb} />}
-        {tab === "reveal" && <Reveal everyone={everyone} myUserId={userId} results={results} locked={locked} showRes={showRes} setShowRes={setShowRes} />}
-        {tab === "leaderboard" && <Leaderboard everyone={everyone} myUserId={userId} results={results} />}
+        {tab === "reveal" && <Reveal everyone={everyone} myUserId={userId} results={results} locked={locked} showRes={showRes} setShowRes={setShowRes} fixtures={fixtures} topScorers={topScorers} />}
+        {tab === "leaderboard" && <Leaderboard everyone={everyone} myUserId={userId} results={results} fixtures={fixtures} topScorers={topScorers} />}
+        {tab === "standings" && <Standings standings={standings} fixtures={fixtures} results={results} myKo32={A.ko?.ko32 || []} entryName={entries.find((e) => e.id === activeId)?.name} />}
         {tab === "rules" && <Rules />}
         {tab === "admin" && <Admin admin={admin} adminScores={adminScores} setScore={adminSetScore}
           adminKo={adminKo} onKoToggle={adminToggleKo} adminRound={adminRound} setAdminRound={setAdminRound}
