@@ -684,7 +684,7 @@ function MatchdayDashboard({ gp = {}, fixtures = [], results }) {
 }
 
 // ---------------------------------------------------------------- Leaderboard
-function Leaderboard({ everyone, myUserId, results, fixtures = [] }) {
+function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = [] }) {
   const BD = [["GR", "GR"], ["R32", "R32"], ["R16", "R16"], ["QF", "QF"], ["SF", "SF"], ["TH", "3RD"], ["FN", "FIN"]];
 
   // Provisional results from currently-live group matches (app-oriented).
