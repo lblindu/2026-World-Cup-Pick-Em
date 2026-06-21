@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+﻿import React, { useEffect, useState, useRef } from "react";
 import {
   GROUPS, MATCHES, TOTAL_MATCHES, KO, ALL_TEAMS,
   FLAG, TEAM_GROUP, TEAM_CODE, SCHEDULE, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
@@ -595,11 +595,17 @@ function MatchdayDashboard({ gp = {}, fixtures = [], results }) {
   const fxByMatch = {};
   fixtures.forEach((f) => { if (f.match_id) fxByMatch[f.match_id] = f; });
 
-  // Target the current date if it has games, else the next game day.
   const SDATES = [...new Set(SCHEDULE.map((m) => m.dt.slice(0, 10)))].sort();
   const todayStr = _ymd(new Date());
-  const targetDate = SDATES.includes(todayStr) ? todayStr : (SDATES.find((d) => d >= todayStr) || SDATES[SDATES.length - 1]);
+  const defaultDate = SDATES.includes(todayStr) ? todayStr : (SDATES.find((d) => d >= todayStr) || SDATES[SDATES.length - 1]);
+  const [targetDate, setTargetDate] = useState(defaultDate);
+
+  const idx = SDATES.indexOf(targetDate);
+  const hasPrev = idx > 0;
+  const hasNext = idx < SDATES.length - 1;
   const isToday = targetDate === todayStr;
+  const dayLabel = isToday ? "Today" : targetDate < todayStr ? _fmtDate(targetDate) : "Next up";
+
   const games = SCHEDULE.filter((m) => m.dt.slice(0, 10) === targetDate).sort((a, b) => a.num - b.num);
 
   let correct = 0, wrong = 0, liveN = 0, upcoming = 0, pts = 0, livePend = 0;
@@ -625,7 +631,12 @@ function MatchdayDashboard({ gp = {}, fixtures = [], results }) {
   return (
     <div className="fade">
       <div className="head"><div className="h1">Matchday</div>
-        <div className="pill">{isToday ? "Today" : "Next up"} · {_fmtDate(targetDate)}</div></div>
+        <div className="md-nav">
+          <button className="md-nav-btn" onClick={() => setTargetDate(SDATES[idx - 1])} disabled={!hasPrev}>‹</button>
+          <span className="pill">{dayLabel} · {_fmtDate(targetDate)}</span>
+          <button className="md-nav-btn" onClick={() => setTargetDate(SDATES[idx + 1])} disabled={!hasNext}>›</button>
+          {!isToday && <button className="md-nav-today" onClick={() => setTargetDate(defaultDate)}>Today</button>}
+        </div></div>
 
       <div className="dash">
         <div className="counts">
@@ -800,7 +811,12 @@ const _formChips = (form) => {
   return String(form).replace(/[^WDL]/gi, "").toUpperCase().slice(-5).split("").map((c, i) =>
     <span key={i} className={c === "W" ? "w" : c === "L" ? "l" : "d"}>{c}</span>);
 };
-function Standings({ standings = [], fixtures = [], results, myKo32 = [], entryName }) {
+function Standings({ standings = [], fixtures = [], results, entries = [], picks = {}, defaultEntryId = null }) {
+  const [selId, setSelId] = useState(defaultEntryId);
+  const activePicks = picks[selId] || { gp: {}, ko: {}, tb: {} };
+  const myKo32 = activePicks.ko?.ko32 || [];
+  const entryName = entries.find((e) => e.id === selId)?.name || "";
+
   const gr = results.groupResults;
   // Teams currently playing (for the LIVE chip).
   const liveTeams = new Set();
@@ -851,8 +867,15 @@ function Standings({ standings = [], fixtures = [], results, myKo32 = [], entryN
         <div className="lockbar"><span className="ico">📊</span>
           <span className="txt"><b>Tables fill in once matches kick off.</b> They update within a minute of each final whistle.</span></div>
       )}
+      {entries.length > 1 && (
+        <div className={'st-entry-bar'}>
+          {entries.map((e) => (
+            <button key={e.id} className={'st-entry-btn' + (selId === e.id ? ' on' : '')} onClick={() => setSelId(e.id)}>{e.name}</button>
+          ))}
+        </div>
+      )}
       {ko32.size > 0 && (
-        <p className="poolnote">“If it holds” notes below cross-reference your Round-of-32 picks{entryName ? ` for ${entryName}` : ""} — switch entries on the Knockouts tab to change which bracket they read.</p>
+        <p className={'poolnote'}>&#8220;If it holds&#8221; notes below cross-reference your Round-of-32 picks{entryName ? ' for ' + entryName : ''}.</p>
       )}
       {GROUPS.map((g) => {
         const { rows, played } = tableFor(g);
@@ -1013,8 +1036,8 @@ function AdminHealth() {
           ) : (
             unmapped.map((t) => (
               <div className="ah-warn" key={t.api_team_id}>⚠
-                <div><b>Unmapped team</b> — “{t.api_name}” (api id {t.api_team_id}) isn’t in{" "}
-                  <code>team_map</code>. Its results won’t score until mapped in the database.</div>
+                <div><b>Unmapped team</b> — "{t.api_name}" (api id {t.api_team_id}) isn't in{" "}
+                  <code>team_map</code>. Its results won't score until mapped in the database.</div>
               </div>
             ))
           )}
@@ -1353,7 +1376,7 @@ export default function App() {
         {tab === "knockouts" && activeId && <KnockoutBoard ko={A.ko} onToggle={toggleTeamPick} round={koRound} setRound={setKoRound} locked={locked} tb={A.tb} setTb={setTb} />}
         {tab === "reveal" && <Reveal everyone={everyone} myUserId={userId} results={results} locked={locked} showRes={showRes} setShowRes={setShowRes} fixtures={fixtures} topScorers={topScorers} />}
         {tab === "leaderboard" && <Leaderboard everyone={everyone} myUserId={userId} results={results} fixtures={fixtures} topScorers={topScorers} />}
-        {tab === "standings" && <Standings standings={standings} fixtures={fixtures} results={results} myKo32={A.ko?.ko32 || []} entryName={entries.find((e) => e.id === activeId)?.name} />}
+        {tab === "standings" && <Standings standings={standings} fixtures={fixtures} results={results} entries={entries} picks={picks} defaultEntryId={activeId} />}
         {tab === "rules" && <Rules />}
         {tab === "admin" && <Admin admin={admin} adminScores={adminScores} setScore={adminSetScore}
           adminKo={adminKo} onKoToggle={adminToggleKo} adminRound={adminRound} setAdminRound={setAdminRound}
