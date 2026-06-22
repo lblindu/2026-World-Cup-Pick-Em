@@ -1220,7 +1220,7 @@ export default function App() {
   const [admin, setAdmin] = useState(false);
   const [lockAt, setLockAt] = useState(null);
   const [now, setNow] = useState(Date.now());
-  const [tab, setTab] = useState("reveal");
+  const [tab, setTab] = useState("groups");
   const [entries, setEntries] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [picks, setPicks] = useState({}); // { entryId: {gp, ko, tb} }
@@ -1346,7 +1346,7 @@ export default function App() {
   if (loading) return (<div className="auth"><div className="pitch-deco" /><p className="sub">Loading…</p></div>);
   if (!session) return <AuthScreen />;
 
-  const tabs = [["groups", "Group Stage"], ["knockouts", "Knockouts"], ["reveal", "Everyone's Picks"],
+  const tabs = [["groups", "Matchday"], ["knockouts", "Knockouts"], ["reveal", "Everyone's Picks"],
     ["leaderboard", "Leaderboard"], ["standings", "Standings"], ["rules", "Rules"]];
   if (admin) tabs.push(["admin", "🔒 Admin"]);
   const editing = tab === "groups" || tab === "knockouts";
