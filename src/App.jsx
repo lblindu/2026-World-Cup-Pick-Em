@@ -283,7 +283,7 @@ const _fmtDate = s => new Date(s + 'T12:00').toLocaleDateString('en-US', { weekd
 const _fmtShort = dt => new Date(dt).toLocaleDateString('en-US', { month:'short', day:'numeric' });
 
 // Live state now comes from api_fixtures, not a kickoff+120 estimate.
-const LIVE_ST = new Set(["1H", "HT", "2H", "ET", "P", "BT", "LIVE"]);
+const LIVE_ST = new Set(["1H", "HT", "2H", "ET", "P", "BT", "LIVE", "SUSP", "INT"]);
 const FINAL_ST = new Set(["FT", "AET", "PEN"]);
 // Convert an api_fixtures row (API home/away) into the app's lower-index
 // orientation by matching team name, so live scores line up with group_results
@@ -303,7 +303,7 @@ function _untilKick(iso, now) {
   return `${Math.max(1, m)}m`;
 }
 // Minute/phase label for a live fixture header.
-const _liveLabel = (fx) => fx.status === "HT" ? "HT" : fx.elapsed ? `${fx.elapsed}'` : "LIVE";
+const _liveLabel = (fx) => fx.status === "HT" ? "HT" : fx.status === "SUSP" ? "Suspended" : fx.status === "INT" ? "Interrupted" : fx.elapsed ? `${fx.elapsed}'` : "LIVE";
 const _fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 // Shared per-match live/final state. Counted truth = group_results (sc); live
 // state is provisional and never overrides a locked result.
