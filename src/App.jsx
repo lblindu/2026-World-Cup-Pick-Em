@@ -335,8 +335,10 @@ function KoReveal({ everyone, myUserId, results }) {
   const latestDecided = decidedRounds[decidedRounds.length - 1];
   const aliveSet = new Set(latestDecided ? (kr[latestDecided.key] || []) : []);
 
-  // Default round: deepest decided, else "champ" (pre-knockouts headline pick).
-  const defaultRound = latestDecided ? latestDecided.key : "champ";
+  // Default round: earliest round that hasn't been fully decided yet (i.e. the active round).
+  // If all rounds decided, show champion. If none decided, show ko32 (start of knockouts).
+  const firstUndecided = KO_ROUNDS.find(r => (kr[r.key] || []).length === 0);
+  const defaultRound = firstUndecided ? firstUndecided.key : "champ";
   const [roundKey, setRoundKey] = useState(defaultRound);
   const [view, setView] = useState("person"); // "person" | "team"
   const [expanded, setExpanded] = useState(new Set());
