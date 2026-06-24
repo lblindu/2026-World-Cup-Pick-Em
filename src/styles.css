@@ -258,6 +258,87 @@ table.gt tr.me td.pc{color:var(--blue)}
 .gb-chip .fl{font-size:15px}
 .gpts{font-size:11px;font-weight:800;color:var(--green);background:rgba(6,156,90,.12);border:1px solid rgba(6,156,90,.25);border-radius:6px;padding:1px 7px;margin-left:6px}
 .legend{font-size:12px;color:var(--mut);margin:10px 2px 0;display:flex;gap:16px;flex-wrap:wrap}
+/* ===== KoReveal — Knockouts Everyone's Picks ===== */
+.ko-rounds-bar{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none}
+.ko-rounds-bar::-webkit-scrollbar{display:none}
+.ko-rpill{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);color:var(--mut);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.ko-rpill.on{background:var(--red);border-color:var(--red);color:#fff}
+.ko-rcount{color:inherit;opacity:.65;font-weight:700}
+.ko-vtog{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px;font-size:12px;font-weight:800;margin-bottom:4px}
+.ko-vtog button{border:0;background:transparent;font:inherit;font-weight:800;color:var(--mut);padding:6px 14px;border-radius:999px;cursor:pointer}
+.ko-vtog button.on{background:var(--ink);color:#fff}
+/* badges */
+.ko-badge{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:800;border-radius:999px;padding:2px 8px;margin-left:5px;vertical-align:middle}
+.ko-badge.through{background:rgba(6,156,90,.12);color:var(--green)}
+.ko-badge.out{background:rgba(224,32,43,.08);color:var(--red)}
+.ko-badge.still{background:var(--paper2);color:var(--mut)}
+/* backer chips */
+.ko-bchip{font-size:11px;font-weight:700;background:var(--paper2);border-radius:999px;padding:3px 9px;color:var(--ink);white-space:nowrap}
+.ko-bchip.you{background:rgba(107,87,214,.15);color:#5a47c7}
+.ko-bchip.you::after{content:"you";margin-left:4px;font-size:8px;font-weight:800;background:rgba(107,87,214,.25);color:#5a47c7;border-radius:999px;padding:1px 5px}
+.ko-more{font-size:11px;font-weight:800;color:var(--mut)}
+/* person view */
+.ko-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.ko-pcard{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:12px 13px;box-shadow:var(--shadow)}
+.ko-pcard.you{border-color:rgba(107,87,214,.4);background:rgba(107,87,214,.04)}
+.ko-ph{display:flex;align-items:baseline;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.ko-pname{font-size:13.5px;font-weight:800;color:var(--ink)}
+.ko-owner{font-size:11px;color:var(--mut);font-weight:600}
+.ko-ytag{font-size:8px;font-weight:800;background:rgba(107,87,214,.2);color:#5a47c7;border-radius:999px;padding:1px 6px}
+.ko-pscore{margin-left:auto;font-size:10.5px;font-weight:800;color:var(--mut)}
+.ko-pteams{display:flex;flex-wrap:wrap;gap:5px}
+.ko-pt{font-size:11px;font-weight:700;border-radius:7px;padding:3px 8px;background:var(--paper2);color:var(--ink);white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.ko-pt.through{background:rgba(6,156,90,.12);color:var(--green)}
+.ko-pt.out{background:rgba(224,32,43,.08);color:var(--red);text-decoration:line-through}
+.ko-pt.still{background:var(--paper2);color:var(--ink)}
+.ko-pt.empty{color:var(--mut);font-style:italic}
+/* champion podium */
+.ko-champ{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.ko-ccard{background:var(--surface);border:1px solid var(--line);border-radius:15px;padding:14px;position:relative;box-shadow:var(--shadow)}
+.ko-ccard.lead{border-color:rgba(224,32,43,.35);box-shadow:0 16px 30px -22px rgba(224,32,43,.35)}
+.ko-ccard.dim{opacity:.58}
+.ko-crank{position:absolute;top:12px;right:13px;font-family:'Anton';color:var(--line);font-size:15px}
+.ko-cflag{font-size:28px;line-height:1;margin-bottom:6px}
+.ko-cflag .fi{font-size:28px}
+.ko-ctm{font-family:'Anton';font-size:16px;margin-bottom:3px;text-transform:uppercase}
+.ko-ccnt{font-size:11px;color:var(--mut);font-weight:700;margin-bottom:9px}
+.ko-ccnt b{color:var(--red)}
+.ko-bar{height:6px;border-radius:99px;background:var(--paper2);overflow:hidden;margin-bottom:11px}
+.ko-bar i{display:block;height:100%;background:var(--red)}
+.ko-bchips{display:flex;flex-wrap:wrap;gap:5px}
+/* consensus rows */
+.ko-bustbanner{margin:0 0 10px;padding:10px 13px;background:#fff8e6;border:1px solid #f0dca6;border-radius:11px;font-size:12px;color:#7a5c14}
+.ko-rows{background:var(--surface);border:1px solid var(--line);border-radius:15px;overflow:hidden;box-shadow:var(--shadow)}
+.ko-row{border-bottom:1px solid var(--paper2);cursor:pointer}
+.ko-row:last-child{border-bottom:0}
+.ko-row.out{background:var(--paper2)}
+.ko-row.surprise{background:#fffdf5;box-shadow:inset 4px 0 0 #d8a72a;cursor:default}
+.ko-rowline{display:flex;align-items:center;gap:12px;padding:11px 14px}
+.ko-rflag{font-size:20px;width:24px;text-align:center;flex:0 0 auto}
+.ko-rflag.dim{filter:grayscale(1);opacity:.5}
+.ko-rflag .fi{font-size:20px}
+.ko-rleft{min-width:120px;flex:0 0 auto}
+.ko-rtm{font-weight:800;font-size:13.5px}
+.ko-rtm.struck{color:var(--mut);text-decoration:line-through}
+.ko-rmid{flex:1;min-width:70px;display:flex;align-items:center;gap:8px}
+.ko-rn{font-size:11.5px;font-weight:800;color:var(--mut);white-space:nowrap}
+.ko-track{flex:1;height:7px;border-radius:99px;background:var(--paper2);overflow:hidden;border:1px solid var(--line)}
+.ko-track i{display:block;height:100%;background:#6b57d6}
+.ko-row.out .ko-track i{background:var(--mut)}
+.ko-rprev{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;max-width:260px;align-items:center}
+.ko-nobody{margin-left:auto;font-size:11px;font-weight:800;color:#a8801f;white-space:nowrap}
+.ko-caret{color:var(--mut);font-size:11px;width:12px;flex:0 0 auto;text-align:center}
+.ko-exp{display:flex;flex-wrap:wrap;gap:5px;padding:0 14px 12px 50px}
+.ko-dim{font-size:11px;color:var(--mut);font-style:italic}
+/* legend */
+.ko-legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:18px;padding:13px 15px;background:var(--paper2);border:1px dashed var(--line);border-radius:12px;font-size:11.5px;color:var(--mut)}
+.ko-legend b{color:var(--ink)}
+.ko-sw{width:12px;height:12px;border-radius:4px;display:inline-block;margin-right:4px;vertical-align:middle}
+.ko-sw.you{background:rgba(107,87,214,.2)}
+.ko-sw.ok{background:rgba(6,156,90,.15)}
+.ko-sw.no{background:rgba(224,32,43,.1)}
+@media(max-width:500px){.ko-rprev{display:none}.ko-rleft{min-width:90px}}
+/* ===== old wf- styles (kept for any remaining refs) ===== */
 .wf-player{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
 .wf-name{font-family:'Anton';font-size:17px;text-transform:uppercase;margin-bottom:12px}
 .wf-cols{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}

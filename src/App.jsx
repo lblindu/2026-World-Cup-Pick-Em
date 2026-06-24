@@ -317,6 +317,238 @@ function _colState(m, fxByMatch, gr) {
   return { fx, sc, isFinal, isLive, dsc };
 }
 
+// ---------------------------------------------------------------- KoReveal (Knockouts · Everyone's Picks)
+const KO_ROUNDS = [
+  { key: "ko32", label: "Round of 32", size: 32 },
+  { key: "ro16", label: "Round of 16", size: 16 },
+  { key: "ro8",  label: "Quarters",    size: 8  },
+  { key: "ro4",  label: "Semis",       size: 4  },
+  { key: "ro2",  label: "Final",       size: 2  },
+  { key: "champ",label: "Champion",    size: 1  },
+];
+
+function KoReveal({ everyone, myUserId, results }) {
+  const kr = results.koResults;
+
+  // Derive the deepest decided round (has any results) to know what "still alive" means.
+  const decidedRounds = KO_ROUNDS.filter(r => (kr[r.key] || []).length > 0);
+  const latestDecided = decidedRounds[decidedRounds.length - 1];
+  const aliveSet = new Set(latestDecided ? (kr[latestDecided.key] || []) : []);
+
+  // Default round: deepest decided, else "champ" (pre-knockouts headline pick).
+  const defaultRound = latestDecided ? latestDecided.key : "champ";
+  const [roundKey, setRoundKey] = useState(defaultRound);
+  const [view, setView] = useState("person"); // "person" | "team"
+  const [expanded, setExpanded] = useState(new Set());
+
+  const round = KO_ROUNDS.find(r => r.key === roundKey);
+  const decided = (kr[roundKey] || []).length > 0;
+  const reachedSet = new Set(kr[roundKey] || []);
+
+  const mine = everyone.filter(c => c.ownerId === myUserId).sort((a, b) => a.name.localeCompare(b.name));
+  const others = everyone.filter(c => c.ownerId !== myUserId).sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...mine, ...others];
+  const total = sorted.length;
+
+  function teamState(team) {
+    if (decided) return reachedSet.has(team) ? "through" : "out";
+    return aliveSet.size > 0 ? (aliveSet.has(team) ? "still" : "out") : "still";
+  }
+
+  // Consensus: count how many entries picked each team for this round.
+  function buildConsensus() {
+    const map = new Map();
+    sorted.forEach(c => {
+      (c.ko[roundKey] || []).forEach(team => {
+        if (!map.has(team)) map.set(team, []);
+        map.get(team).push(c);
+      });
+    });
+    // Add bracket-busters (reached but nobody picked) when round is decided.
+    if (decided) {
+      reachedSet.forEach(team => { if (!map.has(team)) map.set(team, []); });
+    }
+    return [...map.entries()]
+      .map(([team, backers]) => ({ team, backers, surprise: decided && reachedSet.has(team) && backers.length === 0 }))
+      .sort((a, b) => (b.surprise ? 1 : 0) - (a.surprise ? 1 : 0) || b.backers.length - a.backers.length || a.team.localeCompare(b.team));
+  }
+
+  function toggleExpand(team) {
+    setExpanded(prev => { const n = new Set(prev); n.has(team) ? n.delete(team) : n.add(team); return n; });
+  }
+
+  const StateBadge = ({ team }) => {
+    const st = teamState(team);
+    if (st === "through") return <span className="ko-badge through">✓ Through</span>;
+    if (st === "out")     return <span className="ko-badge out">✕ Out</span>;
+    return <span className="ko-badge still">● Still in</span>;
+  };
+
+  // ---- Person view ----
+  function PersonView() {
+    return (
+      <div className="ko-people">
+        {sorted.map(c => {
+          const isMe = c.ownerId === myUserId;
+          const picks = c.ko[roundKey] || [];
+          const through = decided ? picks.filter(t => reachedSet.has(t)).length : 0;
+          return (
+            <div className={`ko-pcard${isMe ? " you" : ""}`} key={c.id}>
+              <div className="ko-ph">
+                <span className="ko-pname">{c.name}{isMe && <span className="ko-ytag">you</span>}</span>
+                <span className="ko-owner">{c.owner}</span>
+                {decided && <span className="ko-pscore">{through}/{round.size} through</span>}
+              </div>
+              <div className="ko-pteams">
+                {picks.length ? picks.map(t => {
+                  const st = teamState(t);
+                  return (
+                    <span key={t} className={`ko-pt ${st}`}>
+                      <Fl t={t} /> {t}
+                    </span>
+                  );
+                }) : <span className="ko-pt empty">No picks</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ---- Champion podium view ----
+  function ChampView() {
+    const cons = buildConsensus();
+    return (
+      <div className="ko-champ">
+        {cons.map((row, i) => {
+          const st = teamState(row.team);
+          const pct = total ? Math.round(row.backers.length / total * 100) : 0;
+          return (
+            <div className={`ko-ccard${i === 0 ? " lead" : ""}${st === "out" ? " dim" : ""}`} key={row.team}>
+              <span className="ko-crank">{i + 1}</span>
+              <div className="ko-cflag"><Fl t={row.team} /></div>
+              <div className="ko-ctm">{row.team}</div>
+              <div className="ko-ccnt"><b>{row.backers.length}</b> of {total}{row.backers.length === 1 ? " · contrarian" : " backers"} <StateBadge team={row.team} /></div>
+              <div className="ko-bar"><i style={{ width: `${pct}%` }} /></div>
+              <div className="ko-bchips">
+                {row.backers.map(c => (
+                  <span key={c.id} className={`ko-bchip${c.ownerId === myUserId ? " you" : ""}`}>{c.name}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ---- Consensus rows view ----
+  function RowsView() {
+    const cons = buildConsensus();
+    const anySurprise = cons.some(r => r.surprise);
+    return (
+      <>
+        {anySurprise && (
+          <div className="ko-bustbanner">🐴 <b>Bracket-buster:</b> a team reached this round that <b>nobody</b> picked — pinned to the top.</div>
+        )}
+        <div className="ko-rows">
+          {cons.map(row => {
+            const st = teamState(row.team);
+            const pct = total ? Math.round(row.backers.length / total * 100) : 0;
+            const isOpen = expanded.has(row.team);
+            const preview = row.backers.slice(0, 5);
+            const extra = row.backers.length > 5 ? row.backers.length - 5 : 0;
+            if (row.surprise) {
+              return (
+                <div className="ko-row surprise" key={row.team}>
+                  <div className="ko-rowline">
+                    <span className="ko-rflag"><Fl t={row.team} /></span>
+                    <div className="ko-rleft">
+                      <span className="ko-rtm">{row.team}</span>
+                      <span className="ko-badge through">✓ Through</span>
+                    </div>
+                    <div className="ko-rmid"><span className="ko-rn">0/{total}</span><div className="ko-track"><i style={{ width: "0%" }} /></div></div>
+                    <span className="ko-nobody">🐴 nobody picked them</span>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className={`ko-row${st === "out" ? " out" : ""}${isOpen ? " open" : ""}`} key={row.team} onClick={() => toggleExpand(row.team)}>
+                <div className="ko-rowline">
+                  <span className={`ko-rflag${st === "out" ? " dim" : ""}`}><Fl t={row.team} /></span>
+                  <div className="ko-rleft">
+                    <span className={`ko-rtm${st === "out" ? " struck" : ""}`}>{row.team}</span>
+                    <StateBadge team={row.team} />
+                  </div>
+                  <div className="ko-rmid">
+                    <span className="ko-rn">{row.backers.length}/{total}</span>
+                    <div className="ko-track"><i style={{ width: `${pct}%` }} /></div>
+                  </div>
+                  <div className="ko-rprev">
+                    {preview.map(c => (
+                      <span key={c.id} className={`ko-bchip${c.ownerId === myUserId ? " you" : ""}`}>{c.name}</span>
+                    ))}
+                    {extra > 0 && <span className="ko-more">+{extra}</span>}
+                  </div>
+                  <span className="ko-caret">{isOpen ? "▴" : "▾"}</span>
+                </div>
+                {isOpen && (
+                  <div className="ko-exp">
+                    {row.backers.map(c => (
+                      <span key={c.id} className={`ko-bchip${c.ownerId === myUserId ? " you" : ""}`}>{c.name}</span>
+                    ))}
+                    {row.backers.length === 0 && <span className="ko-dim">Nobody picked this team for this round.</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="fade">
+      {/* Round pills */}
+      <div className="ko-rounds-bar">
+        {KO_ROUNDS.map(r => {
+          const isLive = r.key === defaultRound && latestDecided;
+          return (
+            <button key={r.key} className={`ko-rpill${roundKey === r.key ? " on" : ""}`} onClick={() => { setRoundKey(r.key); setExpanded(new Set()); }}>
+              {isLive && <span className="ev-livedot" />}{r.label} <span className="ko-rcount">{r.size}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* View toggle */}
+      <div className="ko-vtog">
+        <button className={view === "person" ? "on" : ""} onClick={() => setView("person")}>By person</button>
+        <button className={view === "team" ? "on" : ""} onClick={() => setView("team")}>Compare by team</button>
+      </div>
+      <p className="note" style={{ margin: "2px 0 12px" }}>
+        {view === "person" ? "Each entry's picks for this round." : roundKey === "champ" ? "Who's winning it all? Most-backed first." : "Most-backed first · ✓/✕ once decided · tap a row to see all backers."}
+      </p>
+
+      {/* Content */}
+      {view === "person"
+        ? <PersonView />
+        : roundKey === "champ" ? <ChampView /> : <RowsView />}
+
+      {/* Legend */}
+      <div className="ko-legend">
+        <span><span className="ko-sw you" />  <b>You</b> — your picks</span>
+        <span><span className="ko-sw ok" /> <b>✓ Through</b> — reached this round</span>
+        <span><span className="ko-sw no" /> <b>✕ Out</b> — eliminated</span>
+        <span>● Still in — alive, round not decided</span>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- Reveal
 function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixtures = [], topScorers = [] }) {
   const [sub, setSub] = useState("groups");
@@ -561,55 +793,66 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixt
             ))}</div>
           </div>
         )}
-      </>) : (<>
-        {/* Knockouts view — unchanged; "Show results" toggle lives here */}
-        <div className="res-row">
-          <button className={`res-btn ${showRes ? "on" : ""}`} onClick={() => setShowRes(!showRes)}>{showRes ? "✓ Showing results" : "Show results"}</button>
-          <span className="note">Correct picks turn green, wrong ones get crossed out — once results are entered.</span>
-        </div>
-        {sorted.map(c => (
-          <div className="wf-player" key={c.id}>
-            <div className="wf-name">{c.name} <span className="owner">· {c.owner}</span></div>
-            <div className="wf-cols">{wfRounds.map(([k, lab]) => { const list = c.ko[k] || [];
-              return (<div className={`wf-col ${k === "champ" ? "champ" : ""} ${k === "ko32" ? "wide" : ""}`} key={k}>
-                <h5>{lab}<b>{list.length}</b></h5><div className="wf-stack">
-                  {list.length ? list.map((t) => { let cls = "wf-team", mk = null;
-                    if (showRes) { const ok = (kr[k] || []).includes(t); cls += ok ? " correct" : " out"; mk = <span className="mk">{ok ? "✓" : "✕"}</span>; }
-                    return <div className={cls} key={t}><Fl t={t} /><span className="cn">{t}</span>{mk}</div>;
-                  }) : <div className="wf-team empty">—</div>}
-                </div></div>); })
-            }</div>
-          </div>
-        ))}
-      </>)}
+      </>) : (
+        <KoReveal everyone={everyone} myUserId={myUserId} results={results} />
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------- Matchday dashboard
-// After lock, the Group Stage tab becomes a daily check-in for the active entry:
-// summary first (today's ✓/✕/live/upcoming + points), then that day's games as
-// state cards. Reads api_fixtures (today) + this entry's group_predictions.
-function MatchdayDashboard({ gp = {}, fixtures = [], results }) {
+// Group stage: reads SCHEDULE + group_predictions for ✓/✕/live cards.
+// Knockout stage (post group stage): reads api_fixtures for that day's KO games,
+// shows live scores and cross-references the entry's knockout_predictions so users
+// can see which teams they backed in each round.
+function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
   const gr = results.groupResults;
   const fxByMatch = {};
   fixtures.forEach((f) => { if (f.match_id) fxByMatch[f.match_id] = f; });
 
+  // All unique dates from group schedule.
   const SDATES = [...new Set(SCHEDULE.map((m) => m.dt.slice(0, 10)))].sort();
+  const lastGroupDate = SDATES[SDATES.length - 1];
   const todayStr = _ymd(new Date());
-  const defaultDate = SDATES.includes(todayStr) ? todayStr : (SDATES.find((d) => d >= todayStr) || SDATES[SDATES.length - 1]);
+
+  // KO fixture dates from api_fixtures (rounds that are not group-stage).
+  const koFxDates = [...new Set(
+    fixtures
+      .filter((f) => !f.grp && f.kickoff_utc)
+      .map((f) => f.kickoff_utc.slice(0, 10))
+  )].sort();
+
+  // Combined navigable date list: group dates + KO dates (deduped, sorted).
+  const ALL_DATES = [...new Set([...SDATES, ...koFxDates])].sort();
+
+  // Default to today if it has games, else nearest upcoming, else last group date.
+  const defaultDate = ALL_DATES.includes(todayStr)
+    ? todayStr
+    : (ALL_DATES.find((d) => d >= todayStr) || lastGroupDate);
+
   const [targetDate, setTargetDate] = useState(defaultDate);
 
-  const idx = SDATES.indexOf(targetDate);
+  const idx = ALL_DATES.indexOf(targetDate);
   const hasPrev = idx > 0;
-  const hasNext = idx < SDATES.length - 1;
+  const hasNext = idx < ALL_DATES.length - 1;
   const isToday = targetDate === todayStr;
   const dayLabel = isToday ? "Today" : targetDate < todayStr ? _fmtDate(targetDate) : "Next up";
 
-  const games = SCHEDULE.filter((m) => m.dt.slice(0, 10) === targetDate).sort((a, b) => a.num - b.num);
+  // Determine whether this date is a group-stage day or a KO day.
+  const isGroupDay = SDATES.includes(targetDate);
+  const groupGames = isGroupDay
+    ? SCHEDULE.filter((m) => m.dt.slice(0, 10) === targetDate).sort((a, b) => a.num - b.num)
+    : [];
+  const koGames = !isGroupDay
+    ? fixtures
+        .filter((f) => !f.grp && f.kickoff_utc && f.kickoff_utc.slice(0, 10) === targetDate)
+        .sort((a, b) => new Date(a.kickoff_utc) - new Date(b.kickoff_utc))
+    : [];
 
+  // ---- Group stage card logic ----
+  const pickTeam = (m, pick) => pick === "draw" ? "Draw" : pick === "home" ? m.matchHome : m.matchAway;
   let correct = 0, wrong = 0, liveN = 0, upcoming = 0, pts = 0, livePend = 0;
-  const cards = games.map((m) => {
+  const groupCards = groupGames.map((m) => {
     const pick = gp[m.matchId];
     const { fx, isFinal, isLive, dsc } = _colState(m, fxByMatch, gr);
     const finalW = isFinal && dsc ? matchWinner(m, dsc) : null;
@@ -626,53 +869,83 @@ function MatchdayDashboard({ gp = {}, fixtures = [], results }) {
     return { m, pick, fx, dsc, finalW, liveW, onTrack, state };
   });
 
-  const pickTeam = (m, pick) => pick === "draw" ? "Draw" : pick === "home" ? m.matchHome : m.matchAway;
+  // ---- KO round label from api_fixtures round string ----
+  // e.g. "Round of 32 - 1/16" -> "Round of 32"
+  const koRoundLabel = (round) => {
+    if (!round) return "Knockout";
+    const r = round.toLowerCase();
+    if (r.includes("final") && r.includes("3rd")) return "3rd Place";
+    if (r.includes("final")) return r.includes("semi") ? "Semi-final" : "Final";
+    if (r.includes("quarter")) return "Quarter-final";
+    if (r.includes("round of 16") || r.includes("1/8")) return "Round of 16";
+    if (r.includes("round of 32") || r.includes("1/16")) return "Round of 32";
+    return round;
+  };
+
+  // For a KO fixture, find which KO round key maps to it and whether the user
+  // picked either team to reach that round.
+  const koPickContext = (f) => {
+    const r = (f.round || "").toLowerCase();
+    let roundKey = null;
+    if (r.includes("round of 32") || r.includes("1/16")) roundKey = "ko32";
+    else if (r.includes("round of 16") || r.includes("1/8")) roundKey = "ro16";
+    else if (r.includes("quarter")) roundKey = "ro8";
+    else if (r.includes("semi")) roundKey = "ro4";
+    else if (r.includes("3rd")) roundKey = "third";
+    else if (r.includes("final")) roundKey = "ro2";
+    if (!roundKey) return null;
+    const myPicks = new Set(ko[roundKey] || []);
+    const pickedHome = myPicks.has(f.home_team);
+    const pickedAway = myPicks.has(f.away_team);
+    return { roundKey, pickedHome, pickedAway };
+  };
 
   return (
     <div className="fade">
       <div className="head"><div className="h1">Matchday</div>
         <div className="md-nav">
-          <button className="md-nav-btn" onClick={() => setTargetDate(SDATES[idx - 1])} disabled={!hasPrev}>‹</button>
+          <button className="md-nav-btn" onClick={() => setTargetDate(ALL_DATES[idx - 1])} disabled={!hasPrev}>&#8249;</button>
           <span className="pill">{dayLabel} · {_fmtDate(targetDate)}</span>
-          <button className="md-nav-btn" onClick={() => setTargetDate(SDATES[idx + 1])} disabled={!hasNext}>›</button>
+          <button className="md-nav-btn" onClick={() => setTargetDate(ALL_DATES[idx + 1])} disabled={!hasNext}>&#8250;</button>
           {!isToday && <button className="md-nav-today" onClick={() => setTargetDate(defaultDate)}>Today</button>}
         </div></div>
 
       <div className="dash">
-        <div className="counts">
-          {correct > 0 && <span className="ct ok">✓ {correct} correct</span>}
-          {wrong > 0 && <span className="ct no">✕ {wrong} wrong</span>}
-          {liveN > 0 && <span className="ct live"><span className="ev-livedot" />{liveN} live</span>}
-          {upcoming > 0 && <span className="ct soon">{upcoming} upcoming</span>}
-          <span className="ct tot">+{pts} today{livePend > 0 ? ` · +${livePend} live pending` : ""}</span>
-        </div>
+        {/* Group stage summary chips */}
+        {isGroupDay && (
+          <div className="counts">
+            {correct > 0 && <span className="ct ok">&#10003; {correct} correct</span>}
+            {wrong > 0 && <span className="ct no">&#10005; {wrong} wrong</span>}
+            {liveN > 0 && <span className="ct live"><span className="ev-livedot" />{liveN} live</span>}
+            {upcoming > 0 && <span className="ct soon">{upcoming} upcoming</span>}
+            <span className="ct tot">+{pts} today{livePend > 0 ? ` · +${livePend} live pending` : ""}</span>
+          </div>
+        )}
 
         <div className="cards">
-          {cards.map(({ m, pick, dsc, onTrack, state }) => {
+          {/* Group stage cards */}
+          {groupCards.map(({ m, pick, dsc, onTrack, state }) => {
             const hg = dsc ? (m.sf ? dsc.a : dsc.h) : null;
             const ag = dsc ? (m.sf ? dsc.h : dsc.a) : null;
             const cardCls = state === "correct" ? "okc" : state === "wrong" ? "noc" : state === "live" ? "livec" : "";
-            const ko = m && (fxByMatch[m.matchId]?.kickoff_utc || m.dt);
+            const koTime = fxByMatch[m.matchId]?.kickoff_utc || m.dt;
             let sub, res;
             if (state === "live") {
-              sub = <><b style={{ color: "var(--red)" }}>{_liveLabel(fxByMatch[m.matchId])} LIVE</b></>;
+              sub = <b style={{ color: "var(--red)" }}>{_liveLabel(fxByMatch[m.matchId])} LIVE</b>;
               res = (<><span className="pill live"><span className="ev-livedot" />You: {pick ? pickTeam(m, pick) : "—"}</span>
                 <span className={onTrack ? "dash-on" : "dash-off"}>{!pick ? "no pick" : onTrack ? "on track (+1)" : "trailing"}</span></>);
             } else if (state === "correct") {
               sub = "Full time";
-              res = (<><span className="pill ok"><span className="ev-ic ok">✓</span>You: {pickTeam(m, pick)}</span>
-                <span className="dash-on">+1</span></>);
+              res = (<><span className="pill ok"><span className="ev-ic ok">&#10003;</span>You: {pickTeam(m, pick)}</span><span className="dash-on">+1</span></>);
             } else if (state === "wrong") {
               sub = "Full time";
-              res = (<><span className="pill no"><span className="ev-ic no">✕</span>You: {pickTeam(m, pick)}</span>
-                <span className="dash-off">+0</span></>);
+              res = (<><span className="pill no"><span className="ev-ic no">&#10005;</span>You: {pickTeam(m, pick)}</span><span className="dash-off">+0</span></>);
             } else if (state === "final") {
               sub = "Full time";
               res = <span className="pill soon">No pick</span>;
             } else {
-              sub = _fmtTime(ko);
-              res = (<><span className="pill soon">You: {pick ? pickTeam(m, pick) : "—"}</span>
-                <span className="dash-dim">not started</span></>);
+              sub = _fmtTime(koTime);
+              res = (<><span className="pill soon">You: {pick ? pickTeam(m, pick) : "—"}</span><span className="dash-dim">not started</span></>);
             }
             return (
               <div className={`gcard ${cardCls}`} key={m.matchId}>
@@ -686,8 +959,51 @@ function MatchdayDashboard({ gp = {}, fixtures = [], results }) {
               </div>
             );
           })}
+
+          {/* Knockout stage cards */}
+          {koGames.map((f) => {
+            const isLive = LIVE_ST.has(f.status) && !f.is_final;
+            const isFinal = f.is_final || FINAL_ST.has(f.status);
+            const cardCls = isLive ? "livec" : "";
+            const ctx = koPickContext(f);
+            const pickedHome = ctx?.pickedHome;
+            const pickedAway = ctx?.pickedAway;
+            let sub, res;
+            if (isLive) {
+              sub = <b style={{ color: "var(--red)" }}>{_liveLabel(f)} LIVE</b>;
+            } else if (isFinal) {
+              sub = "Full time";
+            } else {
+              sub = _fmtTime(f.kickoff_utc);
+            }
+            // Show which team(s) the user backed to reach this round.
+            if (pickedHome || pickedAway) {
+              const picked = [pickedHome && f.home_team, pickedAway && f.away_team].filter(Boolean).join(" & ");
+              res = <span className="pill soon">You backed: {picked}</span>;
+            } else if (ctx) {
+              res = <span className="dash-dim">No pick this round</span>;
+            }
+            return (
+              <div className={`gcard ${cardCls}`} key={f.api_id}>
+                <div className="fx">
+                  <span className="fx-top">
+                    <Fl t={f.home_team} /> <b>{f.home_team}</b>
+                    {(isLive || isFinal) && f.home_goals != null
+                      ? <span className="fx-sc"> {f.home_goals}–{f.away_goals} </span>
+                      : <span className="fx-vs"> vs </span>}
+                    <b>{f.away_team}</b> <Fl t={f.away_team} />
+                  </span>
+                  <span className="sub">{koRoundLabel(f.round)} · {sub}</span>
+                </div>
+                {res && <div className="res">{res}</div>}
+              </div>
+            );
+          })}
         </div>
-        {games.length === 0 && <div className="empty">No group games scheduled.</div>}
+
+        {groupGames.length === 0 && koGames.length === 0 && (
+          <div className="empty">No games scheduled for this day.</div>
+        )}
         <p className="note" style={{ marginTop: 12 }}>See all your picks any time under <b>Everyone's Picks</b>.</p>
       </div>
     </div>
@@ -1371,7 +1687,7 @@ export default function App() {
         {noEntry && <div className="empty" style={{ marginTop: 14 }}>Create an entry above to start making picks. You can have up to {MAX_ENTRIES}.</div>}
 
         {tab === "groups" && activeId && (locked
-          ? <MatchdayDashboard gp={A.gp} fixtures={fixtures} results={results} />
+          ? <MatchdayDashboard gp={A.gp} ko={A.ko} fixtures={fixtures} results={results} />
           : <GroupStage gp={A.gp} onPick={pickMatch} locked={locked} />)}
         {tab === "knockouts" && activeId && <KnockoutBoard ko={A.ko} onToggle={toggleTeamPick} round={koRound} setRound={setKoRound} locked={locked} tb={A.tb} setTb={setTb} />}
         {tab === "reveal" && <Reveal everyone={everyone} myUserId={userId} results={results} locked={locked} showRes={showRes} setShowRes={setShowRes} fixtures={fixtures} topScorers={topScorers} />}
