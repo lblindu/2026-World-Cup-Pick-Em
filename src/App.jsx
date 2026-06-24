@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useRef } from "react";
 import {
   GROUPS, MATCHES, TOTAL_MATCHES, KO, ALL_TEAMS,
-  FLAG, TEAM_GROUP, TEAM_CODE, SCHEDULE, poolFor, syncCascade, scoreBreakdown, teamGoals, matchWinner, emptyKo,
+  FLAG, TEAM_GROUP, TEAM_CODE, SCHEDULE, poolFor, syncCascade, scoreBreakdown, maxBreakdown, computeQualified, teamGoals, matchWinner, emptyKo,
 } from "./data.js";
 import {
   isConfigured, supabase, MAX_ENTRIES, signUp, signIn, signOut, sendPasswordReset, updatePassword, ensureProfile, isAdmin,
@@ -1054,13 +1054,17 @@ function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = 
   const finalKnown = finalTotal != null;
   const tbActive = !!topScorerActual || !!topTeamActual || finalKnown;
 
+  const { qualified, provisional } = computeQualified(fixtures, results.groupResults);
+
   const rows = everyone.map((c) => {
     const locked = scoreBreakdown(c.gp, c.ko, results.groupResults, results.koResults);
     const projTotal = live ? scoreBreakdown(c.gp, c.ko, projResults, results.koResults).total : locked.total;
+    const max = maxBreakdown(c.gp, c.ko, results.koResults, qualified, results.groupResults);
+    const grPicksMade = MATCHES.filter((m) => c.gp[m.id]).length;
     const tb = c.tb || {};
     return {
       id: c.id, name: c.name, owner: c.owner, me: c.ownerId === myUserId, ...locked,
-      lockedTotal: locked.total, projTotal, swing: projTotal - locked.total,
+      lockedTotal: locked.total, projTotal, swing: projTotal - locked.total, max, grPicksMade,
       hasLivePick: live && liveIds.some((mid) => c.gp[mid]),
       // tiebreak metrics: final = abs diff (smaller better); team/scorer = goals (higher better)
       tFinal: (finalKnown && tb.final_total_goals != null) ? Math.abs(tb.final_total_goals - finalTotal) : null,
@@ -1093,17 +1097,26 @@ function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = 
             {live && <span className={`lb-mv ${p.move > 0 ? "up" : p.move < 0 ? "dn" : "eq"}`}>
               {p.move > 0 ? `▲${p.move}` : p.move < 0 ? `▼${-p.move}` : "—"}</span>}
           </div>
-          <div className="lb-main"><div className="lb-name">{p.name} <span className="owner">· {p.owner}</span>
-              {p.tied && <span className="lb-tb" title="Level on points — order set by tiebreakers">tiebreak</span>}</div>
-            <div className="lb-bd">{BD.map(([k, lab]) => <span className="bd" key={k}>{lab} <b>{p[k]}</b></span>)}
+          <div className="lb-main"><div className="lb-name">{p.name} <span className="owner">· {p.owner}</span></div>
+<div className="lb-bd">{BD.map(([k, lab]) => {
+              const cur = p[k];
+              const mx = p.max[k];
+              const showMax = mx > 0 || cur > 0;
+              return (
+                <span className="bd" key={k}>{lab} <b>{cur}</b>{showMax && <span className="bd-max">/{provisional && k !== "GR" ? "~" : ""}{cur + mx}</span>}</span>
+              );
+            })}
               {live && (p.swing > 0
-                ? <span className="lb-live up">▲ +{p.swing} live</span>
+                ? <span className="lb-live up">&#9650; +{p.swing} live</span>
                 : p.hasLivePick
                   ? <span className="lb-live flat">live · no points yet</span>
                   : <span className="lb-live flat">— no live pick</span>)}
             </div></div>
-          <div className="lb-score">{live ? p.projTotal : p.lockedTotal}
-            {live && p.swing > 0 && <span className="lb-from">was {p.lockedTotal}</span>}</div>
+          <div className="lb-score">
+            <div>{live ? p.projTotal : p.lockedTotal}</div>
+            <div className="lb-score-max">{provisional ? "~" : ""}{(live ? p.projTotal : p.lockedTotal) + p.max.total} max</div>
+            {live && p.swing > 0 && <span className="lb-from">was {p.lockedTotal}</span>}
+          </div>
         </div>))}
         {rows.length === 0 && <p className="note">No entries yet.</p>}</div>
 

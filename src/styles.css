@@ -106,15 +106,18 @@ code{background:rgba(21,23,31,.06);padding:1px 5px;border-radius:5px;font-size:.
 .lb-row.me{background:rgba(20,80,212,.07);border-radius:10px;padding-left:10px}.lb-row.me .lb-rank{color:var(--blue)}
 .lb-name{font-weight:700;font-size:15px}.lb-score{font-family:'Anton';font-size:22px}
 .lb-main{flex:1;min-width:0}
-.lb-bd{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.lb-gr-info{font-size:11px;font-weight:700;color:var(--mut);margin:3px 0 4px}
+.lb-bd{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
 .bd{font-size:10.5px;font-weight:700;color:var(--mut);background:var(--paper2);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
 .bd b{color:var(--ink);font-weight:800}
+.bd-max{color:var(--mut);font-weight:700;opacity:.6}
 .lb-mv{font-weight:800;font-size:11px;line-height:1}
 .lb-mv.up{color:var(--green)}.lb-mv.dn{color:var(--red)}.lb-mv.eq{color:#c2c6cc}
 .lb-live{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 8px;white-space:nowrap}
 .lb-live.up{background:rgba(6,156,90,.12);color:var(--green);border:1px solid rgba(6,156,90,.3)}
 .lb-live.flat{color:var(--mut);font-weight:700}
 .lb-score{position:relative;text-align:right}
+.lb-score-max{font-family:'Manrope';font-size:10px;font-weight:700;color:var(--mut);text-align:right;letter-spacing:0;margin-top:1px}
 .lb-from{display:block;font-family:'Manrope';font-size:10px;font-weight:700;color:var(--mut);letter-spacing:0}
 .lb-tb{margin-left:7px;font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--gold);background:rgba(242,169,0,.14);border:1px solid rgba(242,169,0,.4);border-radius:999px;padding:1px 7px;vertical-align:middle}
 .tb-auto{margin-left:8px;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--green);background:rgba(6,156,90,.12);border:1px solid rgba(6,156,90,.3);border-radius:999px;padding:2px 8px;vertical-align:middle;font-family:'Manrope'}

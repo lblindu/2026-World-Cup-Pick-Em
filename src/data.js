@@ -74,6 +74,124 @@ export function matchWinner(match, score) {
 
 const inter = (a = [], b = []) => a.filter((x) => b.includes(x)).length;
 
+// ---- Group standings & qualification ----------------------------------------
+// Compute group standings from completed match results.
+// Returns { [groupId]: [ { team, pts, gd, gf }, ...sorted ] }
+export function groupStandings(groupResults = {}) {
+  const st = {};
+  GROUPS.forEach((g) => {
+    st[g.id] = g.teams.map(([name]) => ({ team: name, pts: 0, gd: 0, gf: 0 }));
+  });
+  MATCHES.forEach((m) => {
+    const s = groupResults[m.id];
+    if (!s || s.h == null || s.a == null) return;
+    const grp = st[m.group];
+    const home = grp.find((r) => r.team === m.home);
+    const away = grp.find((r) => r.team === m.away);
+    home.gf += s.h; home.gd += s.h - s.a;
+    away.gf += s.a; away.gd += s.a - s.h;
+    if (s.h > s.a) { home.pts += 3; }
+    else if (s.a > s.h) { away.pts += 3; }
+    else { home.pts += 1; away.pts += 1; }
+  });
+  const cmp = (a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.localeCompare(b.team);
+  Object.values(st).forEach((g) => g.sort(cmp));
+  return st;
+}
+
+// Derive the 32 qualified teams, cross-checking our standings computation
+// against whatever R32 fixtures the API has already scheduled.
+//
+// Returns { qualified: Set<string>, provisional: boolean, mismatches: string[] }
+//   qualified    — set of team names we consider qualified (API wins if available)
+//   provisional  — true if group stage not fully complete (max calcs should show "~")
+//   mismatches   — teams where our calc and the API disagree (for console warnings)
+export function computeQualified(fixtures = [], groupResults = {}) {
+  // --- Source A: teams named in R32 fixtures from api_fixtures ---
+  const r32Fx = fixtures.filter((f) => f.round && f.round.toLowerCase().includes("round of 32"));
+  let fromAPI = null;
+  if (r32Fx.length >= 16) {
+    fromAPI = new Set();
+    r32Fx.forEach((f) => { if (f.home_team) fromAPI.add(f.home_team); if (f.away_team) fromAPI.add(f.away_team); });
+  }
+
+  // --- Source B: computed from group standings ---
+  const totalMatches = MATCHES.length; // 72
+  const playedMatches = MATCHES.filter((m) => {
+    const s = groupResults[m.id];
+    return s && s.h != null && s.a != null;
+  }).length;
+  const provisional = playedMatches < totalMatches;
+
+  let fromCalc = null;
+  if (!provisional) {
+    const st = groupStandings(groupResults);
+    const qualified = new Set();
+    const thirds = [];
+    GROUPS.forEach((g) => {
+      const sorted = st[g.id];
+      qualified.add(sorted[0].team);
+      qualified.add(sorted[1].team);
+      thirds.push({ ...sorted[2], group: g.id });
+    });
+    // Best 8 third-place teams (same tiebreaker: pts → gd → gf → name)
+    thirds.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.localeCompare(b.team));
+    thirds.slice(0, 8).forEach((t) => qualified.add(t.team));
+    fromCalc = qualified;
+  }
+
+  // --- Cross-check when both sources exist ---
+  const mismatches = [];
+  if (fromAPI && fromCalc) {
+    fromAPI.forEach((t) => { if (!fromCalc.has(t)) mismatches.push(`API has ${t}, calc does not`); });
+    fromCalc.forEach((t) => { if (!fromAPI.has(t)) mismatches.push(`Calc has ${t}, API does not`); });
+    if (mismatches.length) console.warn("[computeQualified] mismatch:", mismatches);
+  }
+
+  const qualified = fromAPI || fromCalc || null;
+  return { qualified, provisional: provisional && !fromAPI, mismatches };
+}
+
+// ---- Max points -------------------------------------------------------------
+// Max points an entry can still achieve given current tournament state.
+// qualifiedSet: Set of qualified teams (null = treat all as alive, provisional)
+// Returns same shape as scoreBreakdown: { GR, R32, R16, QF, SF, TH, FN, total }
+export function maxBreakdown(gp = {}, ko = {}, koResults = {}, qualifiedSet = null, groupResults = {}) {
+  // aliveSet = teams that reached the deepest decided KO round
+  const KO_ROUND_KEYS = ["ko32", "ro16", "ro8", "ro4", "ro2", "champ"];
+  let aliveSet = null;
+  for (let i = KO_ROUND_KEYS.length - 1; i >= 0; i--) {
+    const key = KO_ROUND_KEYS[i];
+    if ((koResults[key] || []).length > 0) { aliveSet = new Set(koResults[key]); break; }
+  }
+
+  // A team is "still alive" if: in aliveSet (KO rounds started), or in qualifiedSet
+  // (group stage done, KO not yet started), or we have no info (treat all as alive).
+  const alive = (team) => {
+    if (aliveSet) return aliveSet.has(team);
+    if (qualifiedSet) return qualifiedSet.has(team);
+    return true;
+  };
+
+  // GR: remaining unplayed matches where the entry made a pick
+  let GR = 0;
+  MATCHES.forEach((m) => {
+    if (gp[m.id] && !(groupResults[m.id] && groupResults[m.id].h != null)) GR += 1;
+  });
+
+  const R32 = (ko.ko32 || []).filter(alive).length * 1;
+  const R16 = (ko.ro16 || []).filter(alive).length * 2;
+  const QF  = (ko.ro8  || []).filter(alive).length * 4;
+  const SF  = (ko.ro4  || []).filter(alive).length * 8;
+  const finalistAlive = (ko.ro2   || []).filter(alive).length;
+  const champAlive    = (ko.champ || []).filter(alive).length;
+  const FN = finalistAlive * 24 + champAlive * 32;
+  const predPart = (ko.ro4 || []).filter((t) => !(ko.ro2 || []).includes(t));
+  const TH = predPart.filter(alive).length * 12 + (ko.third || []).filter(alive).length * 16;
+
+  return { GR, R32, R16, QF, SF, TH, FN, total: GR + R32 + R16 + QF + SF + TH + FN };
+}
+
 // returns { GR, R32, R16, QF, SF, TH, FN, total }
 export function scoreBreakdown(gp = {}, ko = {}, groupResults = {}, koResults = {}) {
   let GR = 0;
