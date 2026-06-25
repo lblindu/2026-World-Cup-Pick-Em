@@ -116,7 +116,7 @@ code{background:rgba(21,23,31,.06);padding:1px 5px;border-radius:5px;font-size:.
 .lb-live{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 8px;white-space:nowrap}
 .lb-live.up{background:rgba(6,156,90,.12);color:var(--green);border:1px solid rgba(6,156,90,.3)}
 .lb-live.flat{color:var(--mut);font-weight:700}
-.lb-score{position:relative;text-align:right}
+.lb-score{position:relative;text-align:right;flex-shrink:0}
 .lb-score-max{font-family:'Manrope';font-size:10px;font-weight:700;color:var(--mut);text-align:right;letter-spacing:0;margin-top:1px}
 .lb-from{display:block;font-family:'Manrope';font-size:10px;font-weight:700;color:var(--mut);letter-spacing:0}
 .lb-tb{margin-left:7px;font-size:9px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--gold);background:rgba(242,169,0,.14);border:1px solid rgba(242,169,0,.4);border-radius:999px;padding:1px 7px;vertical-align:middle}
@@ -525,6 +525,13 @@ table.gt td.pc .owner{display:block;margin-top:1px}
 
 /* Responsive — flag+code only on narrow screens */
 @media(max-width:500px){
+  .lb-row{gap:8px}
+  .lb-rank{width:26px;font-size:17px}
+  .lb-name{font-size:13px}
+  .lb-score{font-size:18px}
+  .lb-score-max{font-size:9px}
+  .bd{font-size:9.5px;padding:2px 5px}
+  .lb-bd{gap:4px}
   .ev-th-e,.ev-td-e{width:112px;min-width:112px;padding:7px 9px}
   .ev-ename{font-size:12px}
   .ev-th-m,.ev-td-k{min-width:68px;max-width:68px}
