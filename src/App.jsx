@@ -368,11 +368,8 @@ function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
   // aliveSet = source round teams minus any already eliminated.
   const aliveSet = new Set((kr[sourceRound?.key || "ko32"] || []).filter(t => !eliminatedSet.has(t)));
 
-  // Default round: deepest round with results (the active round).
-  // Falls back to ko32 before any results exist.
-  const decidedRounds = KO_ROUNDS.filter(r => (kr[r.key] || []).length > 0);
-  const latestDecided = decidedRounds[decidedRounds.length - 1];
-  const defaultRound = latestDecided ? latestDecided.key : "ko32";
+  // Default round = deepest fully-populated round (sourceRound), i.e. the active round.
+  const defaultRound = sourceRound ? sourceRound.key : "ko32";
   const [roundKey, setRoundKey] = useState(defaultRound);
   const [view, setView] = useState("person"); // "person" | "team"
   const [expanded, setExpanded] = useState(new Set());
@@ -551,7 +548,7 @@ function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
       {/* Round pills */}
       <div className="ko-rounds-bar">
         {KO_ROUNDS.map(r => {
-          const isLive = r.key === defaultRound && latestDecided;
+          const isLive = r.key === defaultRound && !!sourceRound;
           return (
             <button key={r.key} className={`ko-rpill${roundKey === r.key ? " on" : ""}`} onClick={() => { setRoundKey(r.key); setExpanded(new Set()); }}>
               {isLive && <span className="ev-livedot" />}{r.label} <span className="ko-rcount">{r.size}</span>
