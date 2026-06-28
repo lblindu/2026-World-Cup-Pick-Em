@@ -23,6 +23,40 @@ const GROUPS: Record<string, string[]> = {
   L: ["England", "Croatia", "Ghana", "Panama"],
 };
 const FINAL = ["FT", "AET", "PEN"];
+
+// Maps API round string → the knockout_results round key the winner advances INTO.
+// ko32 (qualified teams) is written by the admin, not here.
+function koRoundKey(round: string | null): string | null {
+  if (!round) return null;
+  const r = round.toLowerCase();
+  if (r.includes("round of 32") || r.includes("1/16")) return "ro16";
+  if (r.includes("round of 16") || r.includes("1/8"))  return "ro8";
+  if (r.includes("quarter"))                            return "ro4";
+  if (r.includes("semi"))                               return "ro2";
+  if (r.includes("3rd") || r.includes("third"))        return "third";
+  if (r.includes("final"))                              return "champ";
+  return null;
+}
+
+// Determine winner from API fixture response.
+// PEN: use penalty shootout scores. AET/FT: use regular goals.
+function fixtureWinner(f: any, appByApiId: Map<number, string>): string | null {
+  const st = f.fixture.status.short;
+  let homeWon: boolean;
+  if (st === "PEN") {
+    const ph = f.score?.penalty?.home ?? 0;
+    const pa = f.score?.penalty?.away ?? 0;
+    if (ph === pa) return null; // shouldn't happen but guard
+    homeWon = ph > pa;
+  } else {
+    const gh = f.goals.home ?? 0;
+    const ga = f.goals.away ?? 0;
+    if (gh === ga) return null; // draw in KO shouldn't happen at FT
+    homeWon = gh > ga;
+  }
+  const winnerId = homeWon ? f.teams.home.id : f.teams.away.id;
+  return appByApiId.get(winnerId) ?? (homeWon ? f.teams.home.name : f.teams.away.name);
+}
 const LEAD = 5 * 60 * 1000;        // start 5 min before kickoff
 const CAP  = 3 * 60 * 60 * 1000;   // stop treating as live after 3h (safety)
 
@@ -46,7 +80,7 @@ Deno.serve(async () => {
   const lower = new Date(now - CAP).toISOString();
   const upper = new Date(now + LEAD).toISOString();
   const { data: due } = await sb.from("api_fixtures")
-    .select("api_id, match_id, grp")
+    .select("api_id, match_id, grp, round")
     .eq("is_final", false)
     .gte("kickoff_utc", lower)
     .lte("kickoff_utc", upper);
@@ -72,6 +106,7 @@ Deno.serve(async () => {
   let lastStatus = 0, lastFt: string | null = null, batches = 0;
   const fixUpdates: Promise<any>[] = [];
   const grpResults: any[] = [];
+  const koWinners: { round: string; team: string }[] = [];
 
   for (let i = 0; i < ids.length; i += 20) {
     const res = await apiGet(`/fixtures?ids=${ids.slice(i, i + 20).join("-")}`);
@@ -91,8 +126,9 @@ Deno.serve(async () => {
       if (isFinal) {
         lastFt = `${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`;
         if (meta?.match_id && meta.grp) {
+          // Group stage: write score to group_results
           const order = GROUPS[meta.grp];
-          const [lo, hi] = meta.match_id.split("-").slice(1).map(Number);
+          const [lo] = meta.match_id.split("-").slice(1).map(Number);
           const appHome = order[lo];
           const apiHomeApp = appByApiId.get(f.teams.home.id);
           const sameOrient = apiHomeApp === appHome;
@@ -101,6 +137,13 @@ Deno.serve(async () => {
             home_goals: sameOrient ? f.goals.home : f.goals.away,
             away_goals: sameOrient ? f.goals.away : f.goals.home,
           });
+        } else {
+          // KO stage: write winner to knockout_results
+          const destRound = koRoundKey(meta?.round ?? null);
+          if (destRound) {
+            const winner = fixtureWinner(f, appByApiId);
+            if (winner) koWinners.push({ round: destRound, team: winner });
+          }
         }
       }
     }
@@ -144,6 +187,11 @@ Deno.serve(async () => {
     } catch (_e) { /* best-effort */ }
   }
 
+  // KO winners: upsert one row per winner (idempotent, safe to re-run)
+  if (koWinners.length) {
+    await sb.from("knockout_results").upsert(koWinners, { onConflict: "round,team" });
+  }
+
   await sb.from("sync_state").update({
     last_poll_at: nowIso, last_success_at: nowIso, last_status_code: lastStatus,
     live_window_open: true, requests_today: (ss?.requests_today ?? 0) + batches,
@@ -151,6 +199,7 @@ Deno.serve(async () => {
   }).eq("id", 1);
 
   return new Response(JSON.stringify({
-    window: "open", polled: ids.length, ft_writes: grpResults.length, standings: stWrites, status: lastStatus,
+    window: "open", polled: ids.length, ft_writes: grpResults.length,
+    ko_writes: koWinners.length, standings: stWrites, status: lastStatus,
   }), { headers: { "Content-Type": "application/json" } });
 });
