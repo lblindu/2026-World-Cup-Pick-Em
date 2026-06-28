@@ -88,18 +88,20 @@ Deno.serve(async () => {
 
       // at FT, write group_results oriented to the lower-index (app) home team
       const meta = byId.get(f.fixture.id);
-      if (isFinal && meta?.match_id && meta.grp) {
-        const order = GROUPS[meta.grp];
-        const [lo, hi] = meta.match_id.split("-").slice(1).map(Number);
-        const appHome = order[lo];
-        const apiHomeApp = appByApiId.get(f.teams.home.id);
-        const sameOrient = apiHomeApp === appHome;
-        grpResults.push({
-          match_id: meta.match_id,
-          home_goals: sameOrient ? f.goals.home : f.goals.away,
-          away_goals: sameOrient ? f.goals.away : f.goals.home,
-        });
+      if (isFinal) {
         lastFt = `${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`;
+        if (meta?.match_id && meta.grp) {
+          const order = GROUPS[meta.grp];
+          const [lo, hi] = meta.match_id.split("-").slice(1).map(Number);
+          const appHome = order[lo];
+          const apiHomeApp = appByApiId.get(f.teams.home.id);
+          const sameOrient = apiHomeApp === appHome;
+          grpResults.push({
+            match_id: meta.match_id,
+            home_goals: sameOrient ? f.goals.home : f.goals.away,
+            away_goals: sameOrient ? f.goals.away : f.goals.home,
+          });
+        }
       }
     }
   }
