@@ -327,23 +327,58 @@ const KO_ROUNDS = [
   { key: "champ",label: "Champion",    size: 1  },
 ];
 
-function KoReveal({ everyone, myUserId, results }) {
+// Map API round string to the koResults key the winner advances INTO (frontend version).
+function _koDestKey(round) {
+  if (!round) return null;
+  const r = round.toLowerCase();
+  if (r.includes("round of 32") || r.includes("1/16")) return "ro16";
+  if (r.includes("round of 16") || r.includes("1/8"))  return "ro8";
+  if (r.includes("quarter"))                            return "ro4";
+  if (r.includes("semi"))                               return "ro2";
+  if (r.includes("3rd") || r.includes("third"))        return "third";
+  if (r.includes("final"))                              return "champ";
+  return null;
+}
+
+// Teams eliminated so far: for each completed KO fixture, the team that
+// did NOT advance to the next round's results set is out.
+function _computeEliminated(fixtures, kr) {
+  const out = new Set();
+  fixtures.forEach((f) => {
+    if (!f.is_final || f.grp) return; // skip non-final or group games
+    const dest = _koDestKey(f.round);
+    if (!dest) return;
+    const winners = new Set(kr[dest] || []);
+    if (f.home_team && !winners.has(f.home_team)) out.add(f.home_team);
+    if (f.away_team && !winners.has(f.away_team)) out.add(f.away_team);
+  });
+  return out;
+}
+
+function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
   const kr = results.koResults;
 
-  // Derive the deepest decided round (has any results) to know what "still alive" means.
+  // Source round = deepest round with its full quota of teams (e.g. ko32 needs 32,
+  // ro16 needs 16). During R32 with only 1 ro16 team, source stays ko32.
+  const sourceRound = [...KO_ROUNDS].reverse().find(r => (kr[r.key] || []).length >= r.size) || null;
+
+  // Eliminated = teams whose completed KO fixture opponent already advanced.
+  const eliminatedSet = _computeEliminated(fixtures, kr);
+
+  // aliveSet = source round teams minus any already eliminated.
+  const aliveSet = new Set((kr[sourceRound?.key || "ko32"] || []).filter(t => !eliminatedSet.has(t)));
+
+  // Default round: deepest round with results (the active round).
+  // Falls back to ko32 before any results exist.
   const decidedRounds = KO_ROUNDS.filter(r => (kr[r.key] || []).length > 0);
   const latestDecided = decidedRounds[decidedRounds.length - 1];
-  const aliveSet = new Set(latestDecided ? (kr[latestDecided.key] || []) : []);
-
-  // Default round: deepest round with results (that's the active round — e.g. ko32 populated
-  // means groups done and R32 in progress). Falls back to ko32 before any results exist.
   const defaultRound = latestDecided ? latestDecided.key : "ko32";
   const [roundKey, setRoundKey] = useState(defaultRound);
   const [view, setView] = useState("person"); // "person" | "team"
   const [expanded, setExpanded] = useState(new Set());
 
   const round = KO_ROUNDS.find(r => r.key === roundKey);
-  const decided = (kr[roundKey] || []).length > 0;
+  const decided = (kr[roundKey] || []).length >= (round?.size ?? Infinity);
   const reachedSet = new Set(kr[roundKey] || []);
 
   const mine = everyone.filter(c => c.ownerId === myUserId).sort((a, b) => a.name.localeCompare(b.name));
@@ -795,7 +830,7 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixt
           </div>
         )}
       </>) : (
-        <KoReveal everyone={everyone} myUserId={myUserId} results={results} />
+        <KoReveal everyone={everyone} myUserId={myUserId} results={results} fixtures={fixtures} />
       )}
     </div>
   );
@@ -1058,7 +1093,7 @@ function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = 
   const rows = everyone.map((c) => {
     const locked = scoreBreakdown(c.gp, c.ko, results.groupResults, results.koResults);
     const projTotal = live ? scoreBreakdown(c.gp, c.ko, projResults, results.koResults).total : locked.total;
-    const max = maxBreakdown(c.gp, c.ko, results.koResults, qualified, results.groupResults);
+    const max = maxBreakdown(c.gp, c.ko, results.koResults, qualified, results.groupResults, fixtures);
     const grPicksMade = MATCHES.filter((m) => c.gp[m.id]).length;
     const tb = c.tb || {};
     return {

@@ -152,23 +152,52 @@ export function computeQualified(fixtures = [], groupResults = {}) {
   return { qualified, provisional: provisional && !fromAPI, mismatches };
 }
 
+// KO round sizes (must match KO_ROUNDS in App.jsx).
+const KO_ROUND_SIZES = { ko32: 32, ro16: 16, ro8: 8, ro4: 4, ro2: 2, champ: 1 };
+const KO_ROUND_KEYS_ORDERED = ["ko32", "ro16", "ro8", "ro4", "ro2", "champ"];
+
+// Map API round string to the koResults dest key (same logic as sync-live).
+function _koDestKey(round) {
+  if (!round) return null;
+  const r = round.toLowerCase();
+  if (r.includes("round of 32") || r.includes("1/16")) return "ro16";
+  if (r.includes("round of 16") || r.includes("1/8"))  return "ro8";
+  if (r.includes("quarter"))                            return "ro4";
+  if (r.includes("semi"))                               return "ro2";
+  if (r.includes("3rd") || r.includes("third"))        return "third";
+  if (r.includes("final"))                              return "champ";
+  return null;
+}
+
 // ---- Max points -------------------------------------------------------------
 // Max points an entry can still achieve given current tournament state.
+// fixtures: api_fixtures rows (used to determine which teams are eliminated mid-round)
 // qualifiedSet: Set of qualified teams (null = treat all as alive, provisional)
 // Returns same shape as scoreBreakdown: { GR, R32, R16, QF, SF, TH, FN, total }
-export function maxBreakdown(gp = {}, ko = {}, koResults = {}, qualifiedSet = null, groupResults = {}) {
-  // aliveSet = teams that reached the deepest decided KO round
-  const KO_ROUND_KEYS = ["ko32", "ro16", "ro8", "ro4", "ro2", "champ"];
-  let aliveSet = null;
-  for (let i = KO_ROUND_KEYS.length - 1; i >= 0; i--) {
-    const key = KO_ROUND_KEYS[i];
-    if ((koResults[key] || []).length > 0) { aliveSet = new Set(koResults[key]); break; }
+export function maxBreakdown(gp = {}, ko = {}, koResults = {}, qualifiedSet = null, groupResults = {}, fixtures = []) {
+  // Source round = deepest round with its full expected quota of teams.
+  // e.g. during R32 with only 1 ro16 team, source stays ko32 (not ro16).
+  let sourceKey = null;
+  for (const key of KO_ROUND_KEYS_ORDERED) {
+    if ((koResults[key] || []).length >= KO_ROUND_SIZES[key]) sourceKey = key;
   }
 
-  // A team is "still alive" if: in aliveSet (KO rounds started), or in qualifiedSet
-  // (group stage done, KO not yet started), or we have no info (treat all as alive).
+  // Teams eliminated from completed KO fixtures (their opponent advanced, they didn't).
+  const eliminatedSet = new Set();
+  fixtures.forEach((f) => {
+    if (!f.is_final || f.grp) return;
+    const dest = _koDestKey(f.round);
+    if (!dest) return;
+    const winners = new Set(koResults[dest] || []);
+    if (f.home_team && !winners.has(f.home_team)) eliminatedSet.add(f.home_team);
+    if (f.away_team && !winners.has(f.away_team)) eliminatedSet.add(f.away_team);
+  });
+
+  // aliveSet = source round teams minus eliminated; fall back to qualifiedSet pre-KO.
+  const sourceTeams = sourceKey ? new Set((koResults[sourceKey] || []).filter(t => !eliminatedSet.has(t))) : null;
+
   const alive = (team) => {
-    if (aliveSet) return aliveSet.has(team);
+    if (sourceTeams) return sourceTeams.has(team);
     if (qualifiedSet) return qualifiedSet.has(team);
     return true;
   };
