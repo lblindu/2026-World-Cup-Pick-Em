@@ -335,10 +335,9 @@ function KoReveal({ everyone, myUserId, results }) {
   const latestDecided = decidedRounds[decidedRounds.length - 1];
   const aliveSet = new Set(latestDecided ? (kr[latestDecided.key] || []) : []);
 
-  // Default round: earliest round that hasn't been fully decided yet (i.e. the active round).
-  // If all rounds decided, show champion. If none decided, show ko32 (start of knockouts).
-  const firstUndecided = KO_ROUNDS.find(r => (kr[r.key] || []).length === 0);
-  const defaultRound = firstUndecided ? firstUndecided.key : "champ";
+  // Default round: deepest round with results (that's the active round — e.g. ko32 populated
+  // means groups done and R32 in progress). Falls back to ko32 before any results exist.
+  const defaultRound = latestDecided ? latestDecided.key : "ko32";
   const [roundKey, setRoundKey] = useState(defaultRound);
   const [view, setView] = useState("person"); // "person" | "team"
   const [expanded, setExpanded] = useState(new Set());
@@ -553,7 +552,7 @@ function KoReveal({ everyone, myUserId, results }) {
 
 // ---------------------------------------------------------------- Reveal
 function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixtures = [], topScorers = [] }) {
-  const [sub, setSub] = useState("groups");
+  const [sub, setSub] = useState("ko");
   const gr = results.groupResults, kr = results.koResults;
   // Live fixtures keyed by app match_id (group games only carry one).
   const fxByMatch = {};
