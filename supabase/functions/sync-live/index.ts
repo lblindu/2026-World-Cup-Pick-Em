@@ -101,6 +101,15 @@ Deno.serve(async () => {
     teamById.set(Number(t.api_team_id), { app: t.app_team, grp: t.grp });
   }
 
+  // Load existing KO winners so we never overwrite a manually-set result.
+  // If either team from a completed fixture is already in the dest round, skip the write.
+  const { data: existingKoRows } = await sb.from("knockout_results").select("round, team");
+  const existingKo = new Map<string, Set<string>>();
+  for (const r of existingKoRows ?? []) {
+    if (!existingKo.has(r.round)) existingKo.set(r.round, new Set());
+    existingKo.get(r.round)!.add(r.team);
+  }
+
   const byId = new Map(due.map((d) => [Number(d.api_id), d]));
   const ids = [...byId.keys()];
   let lastStatus = 0, lastFt: string | null = null, batches = 0;
@@ -138,11 +147,18 @@ Deno.serve(async () => {
             away_goals: sameOrient ? f.goals.away : f.goals.home,
           });
         } else {
-          // KO stage: write winner to knockout_results
+          // KO stage: write winner to knockout_results.
+          // Skip if either team from this fixture is already recorded in the dest round —
+          // that means a result was already set (automatically or manually) and we must not overwrite it.
           const destRound = koRoundKey(meta?.round ?? null);
           if (destRound) {
-            const winner = fixtureWinner(f, appByApiId);
-            if (winner) koWinners.push({ round: destRound, team: winner });
+            const homeApp = appByApiId.get(Number(f.teams.home.id)) ?? "";
+            const awayApp = appByApiId.get(Number(f.teams.away.id)) ?? "";
+            const recorded = existingKo.get(destRound) ?? new Set();
+            if (!recorded.has(homeApp) && !recorded.has(awayApp)) {
+              const winner = fixtureWinner(f, appByApiId);
+              if (winner) koWinners.push({ round: destRound, team: winner });
+            }
           }
         }
       }

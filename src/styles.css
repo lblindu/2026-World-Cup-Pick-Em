@@ -542,3 +542,78 @@ table.gt td.pc .owner{display:block;margin-top:1px}
   .ev-chip{justify-content:center;gap:3px}
   .ev-chip .ev-tn{display:none}
 }
+
+/* ---- Tournament Bracket (KoBracket) ---- */
+.bkt-wrap{overflow-x:auto;padding-bottom:20px}
+.bkt-labels{display:flex;width:max-content;min-width:100%;margin-bottom:4px}
+.bkt-rlabel{flex:0 0 160px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);text-align:center;padding:0 4px}
+.bkt-labels>.bkt-rlabel:nth-child(5){flex:0 0 168px}
+.bkt-inner{display:flex;align-items:stretch;width:max-content;min-width:100%;min-height:600px}
+.bkt-col{display:flex;flex-direction:column;flex:0 0 160px}
+.bkt-col-fin{display:flex;flex-direction:column;flex:0 0 168px;justify-content:center}
+.bkt-pair{flex:1;display:flex;flex-direction:column;position:relative}
+.bkt-cell{flex:1;display:flex;align-items:center;padding:3px 6px;position:relative}
+
+/* Bracket arm: vertical line on right side of pair (left half columns) */
+.bkt-pair.bkt-l::after{
+  content:'';position:absolute;right:0;top:25%;bottom:25%;
+  width:1px;background:var(--line);
+  pointer-events:none;
+}
+/* Horizontal connector from each cell's right edge to the arm */
+.bkt-pair.bkt-l .bkt-cell::after{
+  content:'';position:absolute;right:0;top:50%;
+  width:6px;height:1px;background:var(--line);
+  pointer-events:none;
+}
+/* Right half: mirror — arm and connectors on LEFT edge */
+.bkt-pair.bkt-r::before{
+  content:'';position:absolute;left:0;top:25%;bottom:25%;
+  width:1px;background:var(--line);
+  pointer-events:none;
+}
+.bkt-pair.bkt-r .bkt-cell::before{
+  content:'';position:absolute;left:0;top:50%;
+  width:6px;height:1px;background:var(--line);
+  pointer-events:none;
+}
+/* SF columns (single match): no arm needed */
+.bkt-pair.bkt-l.single::after,.bkt-pair.bkt-r.single::before{display:none}
+/* Final column: no connectors */
+.bkt-pair.bkt-fin .bkt-cell::after,.bkt-pair.bkt-fin .bkt-cell::before{display:none}
+/* Outermost visible column: suppress dangling arm lines */
+.bkt-pair.bkt-l.no-arm::after,.bkt-pair.bkt-l.no-arm .bkt-cell::after{display:none}
+.bkt-pair.bkt-r.no-arm::before,.bkt-pair.bkt-r.no-arm .bkt-cell::before{display:none}
+
+/* Match card */
+.bkt-slot{background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  padding:6px 8px;width:100%;min-width:0;box-shadow:0 1px 4px rgba(21,23,31,.05)}
+.bkt-slot.live{border-color:var(--green);box-shadow:0 0 0 1px var(--green)}
+
+/* Team row */
+.bkt-team{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:12px;font-weight:500}
+.bkt-team .fl{font-size:13px;flex-shrink:0;line-height:1}
+.bkt-tn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:95px}
+.bkt-team.won .bkt-tn{font-weight:800;color:var(--green)}
+.bkt-team.out .bkt-tn{text-decoration:line-through;color:var(--mut);opacity:.55}
+.bkt-team.bkt-tbd .bkt-tn{color:var(--mut);font-style:italic;font-weight:400}
+
+/* Score between teams */
+.bkt-sc{font-size:10px;font-weight:800;color:var(--mut);text-align:center;padding:1px 0;letter-spacing:.02em}
+
+/* Final cell: slightly bigger */
+.bkt-cell-fin .bkt-slot{padding:8px 10px}
+.bkt-cell-fin .bkt-team{font-size:13px;gap:6px}
+.bkt-cell-fin .bkt-tn{max-width:115px}
+
+/* "More rounds coming" center nudge */
+.bkt-coming{display:flex;align-items:center;justify-content:center;flex:0 0 168px;padding:8px}
+.bkt-coming-inner{display:flex;flex-direction:column;align-items:center;gap:8px;
+  border:1.5px dashed var(--line);border-radius:12px;padding:16px 12px;
+  background:var(--paper2);text-align:center;width:100%}
+.bkt-coming-ico{font-size:22px;line-height:1}
+.bkt-coming-txt{font-size:11px;font-weight:700;color:var(--mut);line-height:1.4;max-width:120px}
+
+/* Legend */
+.bkt-legend{display:flex;gap:16px;margin-top:10px;font-size:11px;font-weight:700;flex-wrap:wrap}
+.bkt-leg-won{color:var(--green)}.bkt-leg-out{color:var(--mut)}.bkt-leg-tbd{color:#b0b5bf}

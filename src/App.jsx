@@ -317,6 +317,204 @@ function _colState(m, fxByMatch, gr) {
   return { fx, sc, isFinal, isLive, dsc };
 }
 
+// ---------------------------------------------------------------- KoBracket — read-only tournament bracket view (shown on Knockouts tab when locked)
+
+// Official draw order (matches FOX broadcast bracket).
+// Left half = positions 1-8, right half = 9-16.
+// R16 pairings: (1,2) (3,4) (5,6) (7,8) | (9,10) (11,12) (13,14) (15,16)
+const R32_BRACKET = [
+  ["Germany",       "Paraguay"],
+  ["France",        "Sweden"],
+  ["South Africa",  "Canada"],
+  ["Netherlands",   "Morocco"],
+  ["Portugal",      "Croatia"],
+  ["Spain",         "Austria"],
+  ["United States", "Bosnia & Herz."],
+  ["Belgium",       "Senegal"],
+  ["Brazil",        "Japan"],
+  ["Côte d'Ivoire", "Norway"],
+  ["Mexico",        "Ecuador"],
+  ["England",       "DR Congo"],
+  ["Argentina",     "Cape Verde"],
+  ["Australia",     "Egypt"],
+  ["Switzerland",   "Algeria"],
+  ["Colombia",      "Ghana"],
+];
+
+function KoBracket({ fixtures = [], results }) {
+  const kr = results.koResults;
+  const adv = {
+    ro16: new Set(kr.ro16 || []),
+    ro8:  new Set(kr.ro8  || []),
+    ro4:  new Set(kr.ro4  || []),
+    ro2:  new Set(kr.ro2  || []),
+    champ: new Set(kr.champ || []),
+  };
+
+  const norm = r => (r || "").toLowerCase();
+
+  // Find a fixture from a pool matching two teams (orientation-agnostic)
+  const matchFx = (pool, tA, tB) => !tA || !tB ? null :
+    pool.find(f => [f.home_team, f.away_team].includes(tA) && [f.home_team, f.away_team].includes(tB)) ?? null;
+
+  const poolFor = roundPred => fixtures.filter(f => roundPred(norm(f.round)));
+  const r32Pool = poolFor(r => r.includes("round of 32"));
+  const r16Pool = poolFor(r => r.includes("round of 16"));
+  const qfPool  = poolFor(r => r.includes("quarter"));
+  const sfPool  = poolFor(r => r.includes("semi"));
+  const finFx   = fixtures.find(f => { const r = norm(f.round); return r.includes("final") && !r.includes("semi") && !r.includes("3rd"); });
+
+  // Build R32 slots from the hardcoded bracket definition
+  const r32Slots = R32_BRACKET.map(([tA, tB]) => ({ teamA: tA, teamB: tB, fx: matchFx(r32Pool, tA, tB) }));
+
+  // Winner of a slot = the team in the slot that appears in the given advance set
+  const slotWinner = (slot, advSet) => {
+    if (!slot) return null;
+    if (slot.teamA && advSet.has(slot.teamA)) return slot.teamA;
+    if (slot.teamB && advSet.has(slot.teamB)) return slot.teamB;
+    return null;
+  };
+
+  // Build later rounds: each slot's teams are winners of the two feeding R32/R16/QF slots,
+  // so position is always geometrically correct regardless of fixture schedule order.
+  const buildRound = (prevSlots, advSet, fxPool) => {
+    const slots = [];
+    for (let i = 0; i < prevSlots.length; i += 2) {
+      const tA = slotWinner(prevSlots[i], advSet);
+      const tB = slotWinner(prevSlots[i + 1], advSet);
+      slots.push({ teamA: tA, teamB: tB, fx: matchFx(fxPool, tA, tB) });
+    }
+    return slots;
+  };
+
+  const r16Slots = buildRound(r32Slots, adv.ro16, r16Pool);
+  const qfSlots  = buildRound(r16Slots, adv.ro8,  qfPool);
+  const sfSlots  = buildRound(qfSlots,  adv.ro4,  sfPool);
+
+  const finWA = slotWinner(sfSlots[0], adv.ro2);
+  const finWB = slotWinner(sfSlots[1], adv.ro2);
+  const finSlot = { teamA: finFx?.home_team ?? finWA, teamB: finFx?.away_team ?? finWB, fx: finFx };
+
+  const lH = arr => arr.slice(0, arr.length / 2);
+  const rH = arr => arr.slice(arr.length / 2);
+
+  const Team = ({ name, fx, advSet }) => {
+    if (!name) return <div className="bkt-team bkt-tbd"><span className="bkt-tn">TBD</span></div>;
+    const done = fx?.is_final || FINAL_ST.has(fx?.status || "");
+    const live = !done && LIVE_ST.has(fx?.status || "");
+    const won = advSet.has(name);
+    const out = done && !won;
+    return (
+      <div className={`bkt-team${won ? " won" : out ? " out" : ""}`}>
+        <Fl t={name} /><span className="bkt-tn">{name}</span>
+        {live && <span className="ev-livedot" style={{ marginLeft: 2 }} />}
+      </div>
+    );
+  };
+
+  // All slots are uniform { teamA, teamB, fx } — null slot = both TBD
+  const MatchSlot = ({ slot, advSet }) => {
+    const { teamA, teamB, fx } = slot || {};
+    const done = fx?.is_final || FINAL_ST.has(fx?.status || "");
+    const live = fx && !done && LIVE_ST.has(fx.status || "");
+    const showSc = (done || live) && fx?.home_goals != null;
+    const suffix = fx?.status === "PEN" ? " PEN" : fx?.status === "AET" ? " AET" : "";
+    // Orientation-safe: score order follows teamA/teamB (bracket definition order)
+    const aGoals = fx?.home_team === teamA ? fx.home_goals : fx?.away_goals;
+    const bGoals = fx?.home_team === teamA ? fx.away_goals : fx?.home_goals;
+    return (
+      <div className={`bkt-slot${live ? " live" : ""}`}>
+        <Team name={teamA ?? null} fx={fx} advSet={advSet} />
+        {showSc && <div className="bkt-sc">{aGoals}–{bGoals}{suffix}</div>}
+        <Team name={teamB ?? null} fx={fx} advSet={advSet} />
+      </div>
+    );
+  };
+
+  // noArm suppresses the dangling bracket-arm lines on the outermost visible column
+  const Col = ({ items, advSet, n, side, noArm = false }) => {
+    const cells = Array.from({ length: n }, (_, i) => items[i] ?? null);
+    const pairSize = n > 1 ? 2 : 1;
+    const pairs = [];
+    for (let i = 0; i < n; i += pairSize) {
+      pairs.push(
+        <div className={`bkt-pair bkt-${side}${pairSize === 1 ? " single" : ""}${noArm ? " no-arm" : ""}`} key={i}>
+          <div className="bkt-cell"><MatchSlot slot={cells[i]} advSet={advSet} /></div>
+          {pairSize === 2 && <div className="bkt-cell"><MatchSlot slot={cells[i + 1]} advSet={advSet} /></div>}
+        </div>
+      );
+    }
+    return <div className="bkt-col">{pairs}</div>;
+  };
+
+  // Progressively reveal rounds only when teams have reached them
+  const showQF  = qfSlots.some(s => s?.teamA || s?.teamB);
+  const showSF  = sfSlots.some(s => s?.teamA || s?.teamB);
+  const showFin = !!(finSlot.teamA || finSlot.teamB);
+
+  // Build the labels row dynamically to match visible columns
+  const leftRounds  = ["Round of 32", "Round of 16", showQF && "Quarters", showSF && "Semis"].filter(Boolean);
+  const rightRounds = [...leftRounds].reverse();
+  const centerLabel = showFin ? ["Final"] : [""];
+  const allLabels   = [...leftRounds, ...centerLabel, ...rightRounds];
+
+  // Scroll the bracket so the center element is visible on mount
+  const wrapRef   = useRef(null);
+  const centerRef = useRef(null);
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const center = centerRef.current;
+    if (!wrap || !center) return;
+    const wrapRect   = wrap.getBoundingClientRect();
+    const centerRect = center.getBoundingClientRect();
+    wrap.scrollLeft = centerRect.left - wrapRect.left + wrap.scrollLeft
+      + centerRect.width / 2 - wrapRect.width / 2;
+  }, []);
+
+  return (
+    <div className="fade">
+      <div className="head"><div className="h1">Bracket</div></div>
+      <div className="bkt-wrap" ref={wrapRef}>
+        <div className="bkt-labels">
+          {allLabels.map((l, i) => <div className="bkt-rlabel" key={i}>{l}</div>)}
+        </div>
+        <div className="bkt-inner">
+          <Col items={lH(r32Slots)} advSet={adv.ro16} n={8} side="l" />
+          <Col items={lH(r16Slots)} advSet={adv.ro8}  n={4} side="l" noArm={!showQF} />
+          {showQF  && <Col items={lH(qfSlots)} advSet={adv.ro4} n={2} side="l" noArm={!showSF} />}
+          {showSF  && <Col items={lH(sfSlots)} advSet={adv.ro2} n={1} side="l" noArm={!showFin} />}
+          {/* Center: Final when available, or "more rounds coming" nudge */}
+          {showFin ? (
+            <div className="bkt-col bkt-col-fin" ref={centerRef}>
+              <div className="bkt-pair bkt-fin">
+                <div className="bkt-cell bkt-cell-fin">
+                  <MatchSlot slot={finSlot} advSet={adv.champ} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bkt-coming" ref={centerRef}>
+              <div className="bkt-coming-inner">
+                <div className="bkt-coming-ico">🏆</div>
+                <div className="bkt-coming-txt">More rounds unlock as teams advance</div>
+              </div>
+            </div>
+          )}
+          {showSF  && <Col items={rH(sfSlots)} advSet={adv.ro2} n={1} side="r" noArm={!showFin} />}
+          {showQF  && <Col items={rH(qfSlots)} advSet={adv.ro4} n={2} side="r" noArm={!showSF} />}
+          <Col items={rH(r16Slots)} advSet={adv.ro8}  n={4} side="r" noArm={!showQF} />
+          <Col items={rH(r32Slots)} advSet={adv.ro16} n={8} side="r" />
+        </div>
+        <div className="bkt-legend">
+          <span className="bkt-leg-won">■ Advanced</span>
+          <span className="bkt-leg-out">■ Eliminated</span>
+          <span className="bkt-leg-tbd">■ Not yet played</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- KoReveal (Knockouts · Everyone's Picks)
 const KO_ROUNDS = [
   { key: "ko32", label: "Round of 32", size: 32 },
@@ -1736,7 +1934,9 @@ export default function App() {
         {tab === "groups" && activeId && (locked
           ? <MatchdayDashboard gp={A.gp} ko={A.ko} fixtures={fixtures} results={results} />
           : <GroupStage gp={A.gp} onPick={pickMatch} locked={locked} />)}
-        {tab === "knockouts" && activeId && <KnockoutBoard ko={A.ko} onToggle={toggleTeamPick} round={koRound} setRound={setKoRound} locked={locked} tb={A.tb} setTb={setTb} />}
+        {tab === "knockouts" && activeId && (locked
+          ? <KoBracket fixtures={fixtures} results={results} />
+          : <KnockoutBoard ko={A.ko} onToggle={toggleTeamPick} round={koRound} setRound={setKoRound} locked={locked} tb={A.tb} setTb={setTb} />)}
         {tab === "reveal" && <Reveal everyone={everyone} myUserId={userId} results={results} locked={locked} showRes={showRes} setShowRes={setShowRes} fixtures={fixtures} topScorers={topScorers} />}
         {tab === "leaderboard" && <Leaderboard everyone={everyone} myUserId={userId} results={results} fixtures={fixtures} topScorers={topScorers} />}
         {tab === "standings" && <Standings standings={standings} fixtures={fixtures} results={results} entries={entries} picks={picks} defaultEntryId={activeId} />}
