@@ -848,11 +848,12 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
   const lastGroupDate = SDATES[SDATES.length - 1];
   const todayStr = _ymd(new Date());
 
-  // KO fixture dates from api_fixtures (rounds that are not group-stage).
+  // KO fixture dates from api_fixtures — convert UTC to local date so that
+  // e.g. a 9pm ET game (1am UTC next day) lands on the correct local date.
   const koFxDates = [...new Set(
     fixtures
       .filter((f) => !f.grp && f.kickoff_utc)
-      .map((f) => f.kickoff_utc.slice(0, 10))
+      .map((f) => _ymd(new Date(f.kickoff_utc)))
   )].sort();
 
   // Combined navigable date list: group dates + KO dates (deduped, sorted).
@@ -878,7 +879,7 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
     : [];
   const koGames = !isGroupDay
     ? fixtures
-        .filter((f) => !f.grp && f.kickoff_utc && f.kickoff_utc.slice(0, 10) === targetDate)
+        .filter((f) => !f.grp && f.kickoff_utc && _ymd(new Date(f.kickoff_utc)) === targetDate)
         .sort((a, b) => new Date(a.kickoff_utc) - new Date(b.kickoff_utc))
     : [];
 
