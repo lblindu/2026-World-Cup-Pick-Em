@@ -916,22 +916,22 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
     return round;
   };
 
-  // For a KO fixture, find which KO round key maps to it and whether the user
-  // picked either team to reach that round.
+  // For a KO fixture, check the user's picks for the NEXT round (where the winner
+  // advances into). e.g. for a R32 game, check ro16 picks to see who they think wins.
   const koPickContext = (f) => {
     const r = (f.round || "").toLowerCase();
-    let roundKey = null;
-    if (r.includes("round of 32") || r.includes("1/16")) roundKey = "ko32";
-    else if (r.includes("round of 16") || r.includes("1/8")) roundKey = "ro16";
-    else if (r.includes("quarter")) roundKey = "ro8";
-    else if (r.includes("semi")) roundKey = "ro4";
-    else if (r.includes("3rd")) roundKey = "third";
-    else if (r.includes("final")) roundKey = "ro2";
-    if (!roundKey) return null;
-    const myPicks = new Set(ko[roundKey] || []);
+    let destKey = null;
+    if (r.includes("round of 32") || r.includes("1/16")) destKey = "ro16";
+    else if (r.includes("round of 16") || r.includes("1/8")) destKey = "ro8";
+    else if (r.includes("quarter")) destKey = "ro4";
+    else if (r.includes("semi")) destKey = "ro2";
+    else if (r.includes("3rd")) destKey = "third";
+    else if (r.includes("final")) destKey = "champ";
+    if (!destKey) return null;
+    const myPicks = new Set(ko[destKey] || []);
     const pickedHome = myPicks.has(f.home_team);
     const pickedAway = myPicks.has(f.away_team);
-    return { roundKey, pickedHome, pickedAway };
+    return { destKey, pickedHome, pickedAway };
   };
 
   return (
@@ -1010,12 +1010,12 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
             } else {
               sub = _fmtTime(f.kickoff_utc);
             }
-            // Show which team(s) the user backed to reach this round.
+            // Show which team the user picked to win this game (advance to next round).
             if (pickedHome || pickedAway) {
               const picked = [pickedHome && f.home_team, pickedAway && f.away_team].filter(Boolean).join(" & ");
-              res = <span className="pill soon">You backed: {picked}</span>;
+              res = <span className="pill soon">You picked: {picked}</span>;
             } else if (ctx) {
-              res = <span className="dash-dim">No pick this round</span>;
+              res = <span className="dash-dim">You picked neither</span>;
             }
             return (
               <div className={`gcard ${cardCls}`} key={f.api_id}>
