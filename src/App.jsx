@@ -447,10 +447,11 @@ function KoBracket({ fixtures = [], results }) {
     return <div className="bkt-col">{pairs}</div>;
   };
 
-  // Progressively reveal rounds only when teams have reached them
-  const showQF  = qfSlots.some(s => s?.teamA || s?.teamB);
-  const showSF  = sfSlots.some(s => s?.teamA || s?.teamB);
-  const showFin = !!(finSlot.teamA || finSlot.teamB);
+  // Progressively reveal rounds only when teams have ACTUALLY reached them
+  // Use adv sets (real koResults) not derived slots — slots fall back to teamA which propagates forward falsely
+  const showQF  = adv.ro8.size  > 0;
+  const showSF  = adv.ro4.size  > 0;
+  const showFin = adv.ro2.size  > 0;
 
   // Build the labels row dynamically to match visible columns
   const leftRounds  = ["Round of 32", "Round of 16", showQF && "Quarters", showSF && "Semis"].filter(Boolean);
@@ -1649,7 +1650,7 @@ function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, 
               <span className={`ares ${dcls}`}>{der}</span></div>); })}
         </div>))}
       </>) : (<>
-        <p className="poolnote">Mark which teams actually advanced to each round. Each round only offers the teams from the previous one, so the bracket fills forward as you go.</p>
+        <p className="poolnote">Mark which teams advanced after each game. <b>Tab = the round they're advancing INTO</b> — e.g. to record who won a Round of 32 game, use the <b>Round of 16</b> tab (those are the teams entering R16). Works forward: fill ko32 → ro16 → ro8 etc.</p>
         <KnockoutBoard ko={adminKo} onToggle={onKoToggle} round={adminRound} setRound={setAdminRound} locked={false} mode="admin" />
         <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}><button className="btn" onClick={onSaveKo}>Save Knockout Results</button></div>
       </>)}
