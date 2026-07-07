@@ -18,6 +18,21 @@ export const FLAG = {};
 export const TEAM_GROUP = {};
 GROUPS.forEach((g) => g.teams.forEach(([n, f]) => { FLAG[n] = f; TEAM_GROUP[n] = g.id; }));
 
+export const CODE = {
+  "Mexico": "MEX", "South Africa": "RSA", "South Korea": "KOR", "Czechia": "CZE",
+  "Canada": "CAN", "Bosnia & Herz.": "BIH", "Qatar": "QAT", "Switzerland": "SUI",
+  "Brazil": "BRA", "Morocco": "MAR", "Haiti": "HAI", "Scotland": "SCO",
+  "United States": "USA", "Paraguay": "PAR", "Australia": "AUS", "Türkiye": "TUR",
+  "Germany": "GER", "Curaçao": "CUW", "Côte d'Ivoire": "CIV", "Ecuador": "ECU",
+  "Netherlands": "NED", "Japan": "JPN", "Sweden": "SWE", "Tunisia": "TUN",
+  "Belgium": "BEL", "Egypt": "EGY", "Iran": "IRN", "New Zealand": "NZL",
+  "Spain": "ESP", "Cape Verde": "CPV", "Saudi Arabia": "KSA", "Uruguay": "URU",
+  "France": "FRA", "Senegal": "SEN", "Iraq": "IRQ", "Norway": "NOR",
+  "Argentina": "ARG", "Algeria": "ALG", "Austria": "AUT", "Jordan": "JOR",
+  "Portugal": "POR", "DR Congo": "COD", "Uzbekistan": "UZB", "Colombia": "COL",
+  "England": "ENG", "Croatia": "CRO", "Ghana": "GHA", "Panama": "PAN",
+};
+
 const PAIRS = [[0, 1], [2, 3], [0, 2], [1, 3], [0, 3], [1, 2]];
 export const MATCHES = GROUPS.flatMap((g) =>
   PAIRS.map(([i, j]) => ({ id: `${g.id}-${i}-${j}`, group: g.id, home: g.teams[i][0], away: g.teams[j][0] }))

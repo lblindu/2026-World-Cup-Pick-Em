@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useRef } from "react";
 import {
   GROUPS, MATCHES, TOTAL_MATCHES, KO, ALL_TEAMS,
-  FLAG, TEAM_GROUP, TEAM_CODE, SCHEDULE, poolFor, syncCascade, scoreBreakdown, maxBreakdown, computeQualified, teamGoals, matchWinner, emptyKo,
+  FLAG, CODE, TEAM_GROUP, TEAM_CODE, SCHEDULE, poolFor, syncCascade, scoreBreakdown, maxBreakdown, computeQualified, teamGoals, matchWinner, emptyKo,
 } from "./data.js";
 import {
   isConfigured, supabase, MAX_ENTRIES, signUp, signIn, signOut, sendPasswordReset, updatePassword, ensureProfile, isAdmin,
@@ -554,7 +554,7 @@ function _computeEliminated(fixtures, kr) {
   return out;
 }
 
-function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
+function KoReveal({ everyone, myUserId, results, fixtures = [], highlightEntryId, onClearHighlight }) {
   const kr = results.koResults;
 
   // Source round = deepest round with its full quota of teams (e.g. ko32 needs 32,
@@ -571,6 +571,20 @@ function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
   const defaultRound = sourceRound ? sourceRound.key : "ko32";
   const [roundKey, setRoundKey] = useState(defaultRound);
   const [view, setView] = useState("person"); // "person" | "team"
+
+  // When navigating here from leaderboard, jump to person view + active round + scroll to entry.
+  const highlightRef = useRef(null);
+  useEffect(() => {
+    if (!highlightEntryId) return;
+    setView("person");
+    setRoundKey(defaultRound);
+  }, [highlightEntryId]);
+  useEffect(() => {
+    if (!highlightEntryId || !highlightRef.current) return;
+    highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => onClearHighlight?.(), 3000);
+    return () => clearTimeout(t);
+  }, [highlightEntryId, view, roundKey]);
   const [expanded, setExpanded] = useState(new Set());
 
   const round = KO_ROUNDS.find(r => r.key === roundKey);
@@ -622,10 +636,11 @@ function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
       <div className="ko-people">
         {sorted.map(c => {
           const isMe = c.ownerId === myUserId;
+          const isHL = c.id === highlightEntryId;
           const picks = c.ko[roundKey] || [];
           const through = decided ? picks.filter(t => reachedSet.has(t)).length : 0;
           return (
-            <div className={`ko-pcard${isMe ? " you" : ""}`} key={c.id}>
+            <div className={`ko-pcard${isMe ? " you" : ""}${isHL ? " hl" : ""}`} key={c.id} ref={isHL ? highlightRef : null}>
               <div className="ko-ph">
                 <span className="ko-pname">{c.name}{isMe && <span className="ko-ytag">you</span>}</span>
                 <span className="ko-owner">{c.owner}</span>
@@ -767,8 +782,8 @@ function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
 
       {/* Content */}
       {view === "person"
-        ? <PersonView />
-        : roundKey === "champ" ? <ChampView /> : <RowsView />}
+        ? PersonView()
+        : roundKey === "champ" ? ChampView() : RowsView()}
 
       {/* Legend */}
       <div className="ko-legend">
@@ -782,7 +797,7 @@ function KoReveal({ everyone, myUserId, results, fixtures = [] }) {
 }
 
 // ---------------------------------------------------------------- Reveal
-function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixtures = [], topScorers = [] }) {
+function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixtures = [], topScorers = [], highlightEntryId, onClearHighlight }) {
   const [sub, setSub] = useState("ko");
   const gr = results.groupResults, kr = results.koResults;
   // Live fixtures keyed by app match_id (group games only carry one).
@@ -1026,7 +1041,7 @@ function Reveal({ everyone, myUserId, results, locked, showRes, setShowRes, fixt
           </div>
         )}
       </>) : (
-        <KoReveal everyone={everyone} myUserId={myUserId} results={results} fixtures={fixtures} />
+        <KoReveal everyone={everyone} myUserId={myUserId} results={results} fixtures={fixtures} highlightEntryId={highlightEntryId} onClearHighlight={onClearHighlight} />
       )}
     </div>
   );
@@ -1244,7 +1259,7 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
 }
 
 // ---------------------------------------------------------------- Leaderboard
-function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = [] }) {
+function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = [], onNavigate }) {
   const BD = [["GR", "GR"], ["R32", "R32"], ["R16", "R16"], ["QF", "QF"], ["SF", "SF"], ["TH", "3RD"], ["FN", "FIN"]];
 
   // Provisional results from currently-live group matches (app-oriented).
@@ -1287,15 +1302,35 @@ function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = 
 
   const { qualified, provisional } = computeQualified(fixtures, results.groupResults);
 
+  // Alive teams set for the remaining-teams strip per row
+  const _lbKO_SIZES = { ko32: 32, ro16: 16, ro8: 8, ro4: 4, ro2: 2 };
+  const _lbKO_ORDER = ["ko32", "ro16", "ro8", "ro4", "ro2"];
+  const _lbKr = results.koResults;
+  let _lbSrcKey = null;
+  for (const k of _lbKO_ORDER) { if ((_lbKr[k] || []).length >= _lbKO_SIZES[k]) _lbSrcKey = k; }
+  const _lbElim = new Set();
+  if (_lbSrcKey) fixtures.forEach(f => {
+    if (!f.is_final || f.grp) return;
+    const dest = _koDestKey(f.round);
+    if (!dest) return;
+    const won = new Set(_lbKr[dest] || []);
+    if (f.home_team && !won.has(f.home_team)) _lbElim.add(f.home_team);
+    if (f.away_team && !won.has(f.away_team)) _lbElim.add(f.away_team);
+  });
+  const aliveSet = _lbSrcKey ? new Set((_lbKr[_lbSrcKey] || []).filter(t => !_lbElim.has(t))) : null;
+
   const rows = everyone.map((c) => {
     const locked = scoreBreakdown(c.gp, c.ko, results.groupResults, results.koResults);
     const projTotal = live ? scoreBreakdown(c.gp, c.ko, projResults, results.koResults).total : locked.total;
     const max = maxBreakdown(c.gp, c.ko, results.koResults, qualified, results.groupResults, fixtures);
     const grPicksMade = MATCHES.filter((m) => c.gp[m.id]).length;
     const tb = c.tb || {};
+    const aliveKoPicks = aliveSet
+      ? [...new Set([...(c.ko.ro16||[]), ...(c.ko.ro8||[]), ...(c.ko.ro4||[]), ...(c.ko.ro2||[]), ...(c.ko.champ||[])])].filter(t => aliveSet.has(t))
+      : [];
     return {
       id: c.id, name: c.name, owner: c.owner, me: c.ownerId === myUserId, ...locked,
-      lockedTotal: locked.total, projTotal, swing: projTotal - locked.total, max, grPicksMade,
+      lockedTotal: locked.total, projTotal, swing: projTotal - locked.total, max, grPicksMade, aliveKoPicks,
       hasLivePick: live && liveIds.some((mid) => c.gp[mid]),
       // tiebreak metrics: final = abs diff (smaller better); team/scorer = goals (higher better)
       tFinal: (finalKnown && tb.final_total_goals != null) ? Math.abs(tb.final_total_goals - finalTotal) : null,
@@ -1323,12 +1358,17 @@ function Leaderboard({ everyone, myUserId, results, fixtures = [], topScorers = 
             a late goal or a VAR call can still change them.</span></div>
       )}
       <div className="card">{rows.map((p, i) => (
-        <div className={`lb-row ${p.me ? "me" : ""}`} key={p.id}>
+        <div className={`lb-row ${p.me ? "me" : ""}`} key={p.id} onClick={() => onNavigate?.(p.id)} style={{ cursor: "pointer" }}>
           <div className="lb-rank">{i + 1}
             {live && <span className={`lb-mv ${p.move > 0 ? "up" : p.move < 0 ? "dn" : "eq"}`}>
               {p.move > 0 ? `▲${p.move}` : p.move < 0 ? `▼${-p.move}` : "—"}</span>}
           </div>
           <div className="lb-main"><div className="lb-name">{p.name} <span className="owner">· {p.owner}</span></div>
+            {p.aliveKoPicks.length > 0 && (
+              <div className="lb-alive">{p.aliveKoPicks.map(t => (
+                <span key={t} className="rem-pill rem-pill-sm"><Fl t={t} /><span className="rem-code">{CODE[t] ?? t.slice(0,3).toUpperCase()}</span></span>
+              ))}</div>
+            )}
 <div className="lb-bd">{BD.map(([k, lab]) => {
               const cur = p[k];
               const mx = p.max[k];
@@ -1796,6 +1836,7 @@ export default function App() {
   const [adminKo, setAdminKo] = useState(emptyKo());
   const [adminRound, setAdminRound] = useState("ko32");
   const [showRes, setShowRes] = useState(false);
+  const [highlightEntryId, setHighlightEntryId] = useState(null);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -1915,6 +1956,23 @@ export default function App() {
   const showSave = editing && !locked && activeId;
   const noEntry = editing && !activeId;
 
+  // Remaining teams strip — teams still alive in the KO bracket
+  const _KO_SIZES = { ko32: 32, ro16: 16, ro8: 8, ro4: 4, ro2: 2 };
+  const _KO_ORDER = ["ko32", "ro16", "ro8", "ro4", "ro2"];
+  const _kr = results.koResults;
+  let _srcKey = null;
+  for (const k of _KO_ORDER) { if ((_kr[k] || []).length >= _KO_SIZES[k]) _srcKey = k; }
+  const _elim = new Set();
+  if (_srcKey) fixtures.forEach(f => {
+    if (!f.is_final || f.grp) return;
+    const dest = _koDestKey(f.round);
+    if (!dest) return;
+    const won = new Set(_kr[dest] || []);
+    if (f.home_team && !won.has(f.home_team)) _elim.add(f.home_team);
+    if (f.away_team && !won.has(f.away_team)) _elim.add(f.away_team);
+  });
+  const aliveTeams = _srcKey ? (_kr[_srcKey] || []).filter(t => !_elim.has(t)) : [];
+
   return (
     <>
       <div className="top">
@@ -1923,6 +1981,14 @@ export default function App() {
             <NotificationCenter fixtures={fixtures} results={results} everyone={everyone} userId={userId} locked={locked} />
             <div className="who">{ownerName} · <a style={{ color: "var(--blue)", cursor: "pointer" }} onClick={() => signOut()}>sign out</a></div>
           </div></div>
+        {aliveTeams.length > 0 && (
+          <div className="remaining-strip">
+            <span className="remaining-label">Still in</span>
+            <div className="remaining-flags">{aliveTeams.map(t => (
+              <span key={t} className="rem-pill"><Fl t={t} /><span className="rem-code">{CODE[t] ?? t.slice(0,3).toUpperCase()}</span></span>
+            ))}</div>
+          </div>
+        )}
         <div className="tabs">{tabs.map(([k, l]) => (<button key={k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}>{l}</button>))}</div>
       </div>
 
@@ -1938,8 +2004,8 @@ export default function App() {
         {tab === "knockouts" && activeId && (locked
           ? <KoBracket fixtures={fixtures} results={results} />
           : <KnockoutBoard ko={A.ko} onToggle={toggleTeamPick} round={koRound} setRound={setKoRound} locked={locked} tb={A.tb} setTb={setTb} />)}
-        {tab === "reveal" && <Reveal everyone={everyone} myUserId={userId} results={results} locked={locked} showRes={showRes} setShowRes={setShowRes} fixtures={fixtures} topScorers={topScorers} />}
-        {tab === "leaderboard" && <Leaderboard everyone={everyone} myUserId={userId} results={results} fixtures={fixtures} topScorers={topScorers} />}
+        {tab === "reveal" && <Reveal everyone={everyone} myUserId={userId} results={results} locked={locked} showRes={showRes} setShowRes={setShowRes} fixtures={fixtures} topScorers={topScorers} highlightEntryId={highlightEntryId} onClearHighlight={() => setHighlightEntryId(null)} />}
+        {tab === "leaderboard" && <Leaderboard everyone={everyone} myUserId={userId} results={results} fixtures={fixtures} topScorers={topScorers} onNavigate={(id) => { setHighlightEntryId(id); setTab("reveal"); }} />}
         {tab === "standings" && <Standings standings={standings} fixtures={fixtures} results={results} entries={entries} picks={picks} defaultEntryId={activeId} />}
         {tab === "rules" && <Rules />}
         {tab === "admin" && <Admin admin={admin} adminScores={adminScores} setScore={adminSetScore}
