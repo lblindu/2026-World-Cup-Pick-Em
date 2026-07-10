@@ -58,7 +58,7 @@ function fixtureWinner(f: any, appByApiId: Map<number, string>): string | null {
   return appByApiId.get(winnerId) ?? (homeWon ? f.teams.home.name : f.teams.away.name);
 }
 const LEAD = 5 * 60 * 1000;        // start 5 min before kickoff
-const CAP  = 3 * 60 * 60 * 1000;   // stop treating as live after 3h (safety)
+const CAP  = 4.5 * 60 * 60 * 1000; // stop treating as live after 4.5h (covers delays)
 
 async function apiGet(path: string) {
   const r = await fetch(`${API}${path}`, { headers: { "x-apisports-key": KEY } });
