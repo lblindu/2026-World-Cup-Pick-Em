@@ -1122,9 +1122,10 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
   const koRoundLabel = (round) => {
     if (!round) return "Knockout";
     const r = round.toLowerCase();
-    if (r.includes("final") && r.includes("3rd")) return "3rd Place";
-    if (r.includes("final")) return r.includes("semi") ? "Semi-final" : "Championship";
+    if (r.includes("3rd") || r.includes("third")) return "3rd Place";
     if (r.includes("quarter")) return "Quarter-final";
+    if (r.includes("semi")) return "Semi-final";
+    if (r.includes("final")) return "Final";
     if (r.includes("round of 16") || r.includes("1/8")) return "Round of 16";
     if (r.includes("round of 32") || r.includes("1/16")) return "Round of 32";
     return round;
