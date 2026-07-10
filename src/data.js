@@ -250,9 +250,13 @@ export function scoreBreakdown(gp = {}, ko = {}, groupResults = {}, koResults = 
   const finalists = inter(ko.ro2, koResults.ro2) * 24;
   const champOk = (ko.champ?.[0] && ko.champ[0] === koResults.champ?.[0]) ? 32 : 0;
   const FN = finalists + champOk;
-  // third-place participants = semifinalists (ro4) not in final (ro2)
+  // third-place participants = semifinalists (ro4) not in final (ro2).
+  // Only known once both SF games are done (ro2 has 2 finalists) — guard to avoid
+  // awarding 12 pts prematurely when ro2 is empty and all SF teams look like "participants".
   const predPart = (ko.ro4 || []).filter((t) => !(ko.ro2 || []).includes(t));
-  const actPart = (koResults.ro4 || []).filter((t) => !(koResults.ro2 || []).includes(t));
+  const actPart = (koResults.ro2 || []).length >= 2
+    ? (koResults.ro4 || []).filter((t) => !(koResults.ro2 || []).includes(t))
+    : [];
   const thirdWinnerOk = (ko.third?.[0] && ko.third[0] === koResults.third?.[0]) ? 16 : 0;
   const TH = inter(predPart, actPart) * 12 + thirdWinnerOk;
   return { GR, R32, R16, QF, SF, TH, FN, total: GR + R32 + R16 + QF + SF + TH + FN };
