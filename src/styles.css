@@ -162,6 +162,7 @@ code{background:rgba(21,23,31,.06);padding:1px 5px;border-radius:5px;font-size:.
 .gcard .fx-sc{font-weight:800;color:var(--ink)}
 .gcard .fx-vs{color:var(--mut);font-weight:700;font-size:11px}
 .gcard .sub{color:var(--mut);font-size:11px}
+.ko-round-tag{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:1px}
 .gcard .res{margin-left:auto;text-align:right;display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0}
 .gcard .pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;white-space:nowrap}
 .gcard .pill .ev-ic{width:14px;height:14px;font-size:8px}

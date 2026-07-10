@@ -1123,7 +1123,7 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
     if (!round) return "Knockout";
     const r = round.toLowerCase();
     if (r.includes("final") && r.includes("3rd")) return "3rd Place";
-    if (r.includes("final")) return r.includes("semi") ? "Semi-final" : "Final";
+    if (r.includes("final")) return r.includes("semi") ? "Semi-final" : "Championship";
     if (r.includes("quarter")) return "Quarter-final";
     if (r.includes("round of 16") || r.includes("1/8")) return "Round of 16";
     if (r.includes("round of 32") || r.includes("1/16")) return "Round of 32";
@@ -1222,7 +1222,7 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
             } else if (isFinal) {
               sub = "Full time";
             } else {
-              sub = _fmtTime(f.kickoff_utc);
+              sub = <>Not started · {_fmtTime(f.kickoff_utc)}</>;
             }
             // Show which team the user picked to win this game (advance to next round).
             if (pickedHome || pickedAway) {
@@ -1234,6 +1234,7 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
             return (
               <div className={`gcard ${cardCls}`} key={f.api_id}>
                 <div className="fx">
+                  <span className="ko-round-tag">{koRoundLabel(f.round)}</span>
                   <span className="fx-top">
                     <Fl t={f.home_team} /> <b>{f.home_team}</b>
                     {(isLive || isFinal) && f.home_goals != null
@@ -1241,7 +1242,7 @@ function MatchdayDashboard({ gp = {}, ko = {}, fixtures = [], results }) {
                       : <span className="fx-vs"> vs </span>}
                     <b>{f.away_team}</b> <Fl t={f.away_team} />
                   </span>
-                  <span className="sub">{koRoundLabel(f.round)} · {sub}</span>
+                  <span className="sub">{sub}</span>
                 </div>
                 {res && <div className="res">{res}</div>}
               </div>
