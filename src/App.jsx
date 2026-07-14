@@ -362,7 +362,7 @@ function KoBracket({ fixtures = [], results }) {
   const r16Pool = poolFor(r => r.includes("round of 16"));
   const qfPool  = poolFor(r => r.includes("quarter"));
   const sfPool  = poolFor(r => r.includes("semi"));
-  const finFx   = fixtures.find(f => { const r = norm(f.round); return r.includes("final") && !r.includes("semi") && !r.includes("3rd"); });
+  const finFx   = fixtures.find(f => _koDestKey(f.round) === "champ"); // ordered classifier: excludes QF/SF/3rd, which all contain "final"
 
   // Build R32 slots from the hardcoded bracket definition
   const r32Slots = R32_BRACKET.map(([tA, tB]) => ({ teamA: tA, teamB: tB, fx: matchFx(r32Pool, tA, tB) }));
