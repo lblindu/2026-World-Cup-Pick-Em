@@ -523,6 +523,7 @@ const KO_ROUNDS = [
   { key: "ro8",  label: "Quarters",    size: 8  },
   { key: "ro4",  label: "Semis",       size: 4  },
   { key: "ro2",  label: "Final",       size: 2  },
+  { key: "third",label: "3rd Place",   size: 1  },
   { key: "champ",label: "Champion",    size: 1  },
 ];
 
@@ -557,15 +558,22 @@ function _computeEliminated(fixtures, kr) {
 function KoReveal({ everyone, myUserId, results, fixtures = [], highlightEntryId, onClearHighlight }) {
   const kr = results.koResults;
 
-  // Source round = deepest round with its full quota of teams (e.g. ko32 needs 32,
-  // ro16 needs 16). During R32 with only 1 ro16 team, source stays ko32.
-  const sourceRound = [...KO_ROUNDS].reverse().find(r => (kr[r.key] || []).length >= r.size) || null;
+  // Source round = deepest MAIN-bracket round with its full quota of teams (e.g. ko32
+  // needs 32, ro16 needs 16). During R32 with only 1 ro16 team, source stays ko32.
+  // "third" is a side branch (the 3rd-place game) — exclude it so it never hijacks
+  // the default/active round or the main-bracket alive set.
+  const sourceRound = [...KO_ROUNDS].reverse().find(r => r.key !== "third" && (kr[r.key] || []).length >= r.size) || null;
 
   // Eliminated = teams whose completed KO fixture opponent already advanced.
   const eliminatedSet = _computeEliminated(fixtures, kr);
 
   // aliveSet = source round teams minus any already eliminated.
   const aliveSet = new Set((kr[sourceRound?.key || "ko32"] || []).filter(t => !eliminatedSet.has(t)));
+
+  // 3rd-place game participants = the two losing semifinalists (semifinalists who
+  // aren't finalists). Known once the semis are done. They stay "still in" for the
+  // 3rd-place game even though the main-bracket alive set has moved on to finalists.
+  const thirdParticipants = new Set((kr.ro4 || []).filter(t => !(kr.ro2 || []).includes(t)));
 
   // Default round = deepest fully-populated round (sourceRound), i.e. the active round.
   const defaultRound = sourceRound ? sourceRound.key : "ko32";
@@ -597,6 +605,11 @@ function KoReveal({ everyone, myUserId, results, fixtures = [], highlightEntryId
   const total = sorted.length;
 
   function teamState(team) {
+    if (roundKey === "third") {
+      if (decided) return reachedSet.has(team) ? "through" : "out";
+      // Before the 3rd-place game: only the two actual participants are "still in".
+      return thirdParticipants.size >= 2 ? (thirdParticipants.has(team) ? "still" : "out") : "still";
+    }
     if (decided) return reachedSet.has(team) ? "through" : "out";
     return aliveSet.size > 0 ? (aliveSet.has(team) ? "still" : "out") : "still";
   }
@@ -757,6 +770,73 @@ function KoReveal({ everyone, myUserId, results, fixtures = [], highlightEntryId
     );
   }
 
+  // ---- Tiebreakers panel (not a round — everyone's three tiebreaker answers) ----
+  function TiebreakersPanel() {
+    const teamCount = {}, scorerCount = {};
+    let gSum = 0, gN = 0, gMin = Infinity, gMax = -Infinity;
+    sorted.forEach(c => {
+      const tb = c.tb || {};
+      if (tb.top_scoring_team) teamCount[tb.top_scoring_team] = (teamCount[tb.top_scoring_team] || 0) + 1;
+      const sc = (tb.top_scorer || "").trim();
+      if (sc) scorerCount[sc] = (scorerCount[sc] || 0) + 1;
+      if (tb.final_total_goals != null) {
+        gSum += tb.final_total_goals; gN += 1;
+        gMin = Math.min(gMin, tb.final_total_goals); gMax = Math.max(gMax, tb.final_total_goals);
+      }
+    });
+    const top = (obj) => { const e = Object.entries(obj).sort((a, b) => b[1] - a[1]); return e.length ? e[0] : null; };
+    const teamTop = top(teamCount), scorerTop = top(scorerCount);
+    const avg = gN ? gSum / gN : null;
+
+    return (
+      <div className="tbrv">
+        <div className="tbrv-cons">
+          <div className="tbrv-tile">
+            <div className="lab">Most-picked top team</div>
+            <div className="val">{teamTop ? <><Fl t={teamTop[0]} /> {teamTop[0]} <small>· {teamTop[1]} of {total}</small></> : "—"}</div>
+          </div>
+          <div className="tbrv-tile">
+            <div className="lab">Avg. final goals guess</div>
+            <div className="val">{avg != null ? <>{avg.toFixed(1)} <small>· range {gMin}–{gMax}</small></> : "—"}</div>
+          </div>
+          <div className="tbrv-tile">
+            <div className="lab">Most-picked top scorer</div>
+            <div className="val">{scorerTop ? <>{scorerTop[0]} <small>· {scorerTop[1]} of {total}</small></> : "—"}</div>
+          </div>
+        </div>
+        <div className="tbrv-tablewrap">
+          <table className="tbrv-table">
+            <thead><tr><th>Entry</th><th>Goals in final</th><th>Top-scoring team</th><th>Top scorer</th></tr></thead>
+            <tbody>
+              {sorted.map(c => {
+                const tb = c.tb || {};
+                const isMe = c.ownerId === myUserId;
+                return (
+                  <tr key={c.id} className={isMe ? "you" : ""}>
+                    <td className="ent">{c.name}{isMe && <span className="ko-ytag">you</span>}<small>{c.owner}</small></td>
+                    <td>{tb.final_total_goals != null ? <span className="tbrv-num">{tb.final_total_goals}</span> : <span className="tbrv-dash">—</span>}</td>
+                    <td>{tb.top_scoring_team ? <span className="tbrv-tcell"><Fl t={tb.top_scoring_team} /> {tb.top_scoring_team}</span> : <span className="tbrv-dash">—</span>}</td>
+                    <td>{tb.top_scorer ? <span className="tbrv-tcell">{tb.top_scorer}</span> : <span className="tbrv-dash">—</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  const isTb = roundKey === "tb";
+  const teamView = (roundKey === "champ" || roundKey === "third") ? ChampView : RowsView;
+  const noteText = isTb
+    ? "Everyone's tiebreaker answers — consensus first, then the full table."
+    : view === "person"
+      ? (roundKey === "third" ? "Each entry's pick for the 3rd-place game — the two losing semifinalists play off." : "Each entry's picks for this round.")
+      : roundKey === "champ" ? "Who's winning it all? Most-backed first."
+      : roundKey === "third" ? "Who wins the 3rd-place game? Most-backed first · ✓/✕ once decided."
+      : "Most-backed first · ✓/✕ once decided · tap a row to see all backers.";
+
   return (
     <div className="fade">
       {/* Round pills */}
@@ -769,29 +849,36 @@ function KoReveal({ everyone, myUserId, results, fixtures = [], highlightEntryId
             </button>
           );
         })}
+        <button className={`ko-rpill tbpill${isTb ? " on" : ""}`} onClick={() => { setRoundKey("tb"); setExpanded(new Set()); }}>★ Tiebreakers</button>
       </div>
 
-      {/* View toggle */}
-      <div className="ko-vtog">
-        <button className={view === "person" ? "on" : ""} onClick={() => setView("person")}>By person</button>
-        <button className={view === "team" ? "on" : ""} onClick={() => setView("team")}>Compare by team</button>
-      </div>
-      <p className="note" style={{ margin: "2px 0 12px" }}>
-        {view === "person" ? "Each entry's picks for this round." : roundKey === "champ" ? "Who's winning it all? Most-backed first." : "Most-backed first · ✓/✕ once decided · tap a row to see all backers."}
-      </p>
+      {/* View toggle (rounds only — the tiebreakers panel has a single layout) */}
+      {!isTb && (
+        <div className="ko-vtog">
+          <button className={view === "person" ? "on" : ""} onClick={() => setView("person")}>By person</button>
+          <button className={view === "team" ? "on" : ""} onClick={() => setView("team")}>Compare by team</button>
+        </div>
+      )}
+      <p className="note" style={{ margin: "2px 0 12px" }}>{noteText}</p>
+
+      {roundKey === "third" && (
+        <div className="ko-ptsnote">
+          <b>Scoring</b> · <span className="p">+12</span> for each team you correctly send to the 3rd-place game (both losing semifinalists) · <span className="p">+16</span> for correctly picking who wins it — up to <span className="p">+40</span> total.
+        </div>
+      )}
 
       {/* Content */}
-      {view === "person"
-        ? PersonView()
-        : roundKey === "champ" ? ChampView() : RowsView()}
+      {isTb ? TiebreakersPanel() : view === "person" ? PersonView() : teamView()}
 
-      {/* Legend */}
-      <div className="ko-legend">
-        <span><span className="ko-sw you" />  <b>You</b> — your picks</span>
-        <span><span className="ko-sw ok" /> <b>✓ Through</b> — reached this round</span>
-        <span><span className="ko-sw no" /> <b>✕ Out</b> — eliminated</span>
-        <span>● Still in — alive, round not decided</span>
-      </div>
+      {/* Legend (team-pick rounds only) */}
+      {!isTb && (
+        <div className="ko-legend">
+          <span><span className="ko-sw you" />  <b>You</b> — your picks</span>
+          <span><span className="ko-sw ok" /> <b>✓ Through</b> — reached this round</span>
+          <span><span className="ko-sw no" /> <b>✕ Out</b> — eliminated</span>
+          <span>● Still in — alive, round not decided</span>
+        </div>
+      )}
     </div>
   );
 }

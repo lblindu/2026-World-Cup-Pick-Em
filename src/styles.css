@@ -352,6 +352,31 @@ table.gt tr.me td.pc{color:var(--blue)}
 .ko-sw.ok{background:rgba(6,156,90,.15)}
 .ko-sw.no{background:rgba(224,32,43,.1)}
 @media(max-width:500px){.ko-rprev{display:none}.ko-rleft{min-width:90px}}
+/* ===== Everyone's Picks · 3rd-place scoring note ===== */
+.ko-ptsnote{font-size:12px;color:var(--mut);line-height:1.55;background:var(--paper2);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:10px;padding:9px 13px;margin:0 0 12px}
+.ko-ptsnote b{color:var(--ink)}
+.ko-ptsnote .p{color:var(--red);font-weight:800}
+/* ===== Everyone's Picks · Tiebreakers reveal ===== */
+.ko-rpill.tbpill{border-color:var(--gold);color:#a8730a}
+.ko-rpill.tbpill.on{background:var(--gold);border-color:var(--gold);color:#3a2a00}
+.tbrv{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--gold);border-radius:0 0 16px 16px;padding:16px;box-shadow:var(--shadow)}
+.tbrv-cons{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.tbrv-tile{background:var(--paper2);border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+.tbrv-tile .lab{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin-bottom:5px}
+.tbrv-tile .val{font-size:14px;font-weight:800;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tbrv-tile .val small{font-weight:700;color:var(--mut);font-size:11px}
+.tbrv-tablewrap{overflow-x:auto}
+.tbrv-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbrv-table th{text-align:left;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbrv-table td{padding:8px;border-bottom:1px solid rgba(21,23,31,.06);vertical-align:middle}
+.tbrv-table tr:last-child td{border-bottom:none}
+.tbrv-table tr.you td{background:rgba(107,87,214,.05)}
+.tbrv-table .ent{font-weight:800;white-space:nowrap}
+.tbrv-table .ent .ko-ytag{margin-left:5px}
+.tbrv-table .ent small{display:block;font-weight:700;color:var(--mut);font-size:10.5px}
+.tbrv-num{font-family:'Anton';font-size:16px;color:var(--red)}
+.tbrv-tcell{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+.tbrv-dash{color:var(--mut)}
 /* ===== old wf- styles (kept for any remaining refs) ===== */
 .wf-player{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
 .wf-name{font-family:'Anton';font-size:17px;text-transform:uppercase;margin-bottom:12px}
