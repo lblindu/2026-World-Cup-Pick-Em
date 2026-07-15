@@ -861,6 +861,12 @@ function KoReveal({ everyone, myUserId, results, fixtures = [], highlightEntryId
       )}
       <p className="note" style={{ margin: "2px 0 12px" }}>{noteText}</p>
 
+      {roundKey === "third" && (
+        <div className="ko-ptsnote">
+          <b>Scoring</b> · <span className="p">+12</span> for each team you correctly send to the 3rd-place game (both losing semifinalists) · <span className="p">+16</span> for correctly picking who wins it — up to <span className="p">+40</span> total.
+        </div>
+      )}
+
       {/* Content */}
       {isTb ? TiebreakersPanel() : view === "person" ? PersonView() : teamView()}
 
