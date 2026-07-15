@@ -30,6 +30,42 @@ async function apiGet(path: string) {
   return { status: r.status, body: await r.json() };
 }
 
+// Maps API round string → the knockout_results round key the winner advances INTO.
+// Ordered checks: "Quarter-finals"/"Semi-finals"/"3rd Place Final" all contain
+// "final", so they must be matched BEFORE the bare final. ko32 (qualifiers) is
+// written by the admin, not here. Mirrors koRoundKey in sync-live.
+function koRoundKey(round: string | null): string | null {
+  if (!round) return null;
+  const r = round.toLowerCase();
+  if (r.includes("round of 32") || r.includes("1/16")) return "ro16";
+  if (r.includes("round of 16") || r.includes("1/8"))  return "ro8";
+  if (r.includes("quarter"))                            return "ro4";
+  if (r.includes("semi"))                               return "ro2";
+  if (r.includes("3rd") || r.includes("third"))        return "third";
+  if (r.includes("final"))                              return "champ";
+  return null;
+}
+
+// Winner of a completed KO fixture. PEN → shootout scores; AET/FT → regular goals.
+// Mirrors fixtureWinner in sync-live.
+function fixtureWinner(f: any, appByApiId: Map<number, string>): string | null {
+  const st = f.fixture.status.short;
+  let homeWon: boolean;
+  if (st === "PEN") {
+    const ph = f.score?.penalty?.home ?? 0;
+    const pa = f.score?.penalty?.away ?? 0;
+    if (ph === pa) return null;
+    homeWon = ph > pa;
+  } else {
+    const gh = f.goals.home ?? 0;
+    const ga = f.goals.away ?? 0;
+    if (gh === ga) return null; // draw at FT in a KO shouldn't happen
+    homeWon = gh > ga;
+  }
+  const winnerId = homeWon ? f.teams.home.id : f.teams.away.id;
+  return appByApiId.get(Number(winnerId)) ?? (homeWon ? f.teams.home.name : f.teams.away.name);
+}
+
 Deno.serve(async () => {
   const { data: tm } = await sb.from("team_map").select("api_team_id, app_team, grp");
   const teamById = new Map<number, { app: string; grp: string }>();
@@ -75,6 +111,50 @@ Deno.serve(async () => {
       { onConflict: "api_team_id" },
     );
   }
+
+  // ---- knockout auto-grading (§5): the durable backstop for sync-live ----
+  // sync-live only grades a KO winner the instant a fixture flips is_final in its
+  // narrow poll window; if it misses that transition (transient error, the game
+  // was already marked final, poller paused/down), the winner is never written and
+  // nothing re-grades an already-final KO fixture. This pass re-derives the winner
+  // of EVERY final KO fixture every run, so a miss self-heals within one core cycle.
+  // Idempotent + non-destructive: skip a round if either of the fixture's teams is
+  // already recorded there (a manual or prior result exists — never overwrite it).
+  let koWrites = 0, koErr: string | null = null;
+  try {
+    const appByApiId = new Map<number, string>();
+    for (const [id, v] of teamById) appByApiId.set(id, v.app);
+
+    const { data: existingKoRows } = await sb.from("knockout_results").select("round, team");
+    const existingKo = new Map<string, Set<string>>();
+    for (const r of existingKoRows ?? []) {
+      if (!existingKo.has(r.round)) existingKo.set(r.round, new Set());
+      existingKo.get(r.round)!.add(r.team);
+    }
+
+    const koWinners: { round: string; team: string }[] = [];
+    for (const f of fx.body?.response ?? []) {
+      if (!FINAL.includes(f.fixture.status.short)) continue;
+      const round = f.league.round ?? "";
+      if (round.toLowerCase().startsWith("group")) continue; // group games grade elsewhere
+      const dest = koRoundKey(round);
+      if (!dest) continue;
+      const homeApp = appByApiId.get(Number(f.teams.home.id)) ?? f.teams.home.name;
+      const awayApp = appByApiId.get(Number(f.teams.away.id)) ?? f.teams.away.name;
+      const recorded = existingKo.get(dest) ?? new Set<string>();
+      if (recorded.has(homeApp) || recorded.has(awayApp)) continue; // already graded — leave it
+      const winner = fixtureWinner(f, appByApiId);
+      if (winner) {
+        koWinners.push({ round: dest, team: winner });
+        recorded.add(winner);
+        existingKo.set(dest, recorded); // guard against a second fixture in the same round this run
+      }
+    }
+    if (koWinners.length) {
+      await sb.from("knockout_results").upsert(koWinners, { onConflict: "round,team" });
+      koWrites = koWinners.length;
+    }
+  } catch (e) { koErr = String(e); }
 
   // ---- standings: GROUP TABLES ONLY, deduped ----
   const stnd = await apiGet(`/standings?league=1&season=2026`);
@@ -142,7 +222,8 @@ Deno.serve(async () => {
   }).eq("id", 1);
 
   return new Response(JSON.stringify({
-    fixtures: rows.length, standings: srows.length, top_scorers: tsCount, unmapped: unmapped.size,
-    errors: { fixtures: fxErr?.message ?? null, standings: sErr?.message ?? null, top_scorers: tsErr },
+    fixtures: rows.length, standings: srows.length, top_scorers: tsCount,
+    ko_writes: koWrites, unmapped: unmapped.size,
+    errors: { fixtures: fxErr?.message ?? null, standings: sErr?.message ?? null, top_scorers: tsErr, knockouts: koErr },
   }), { headers: { "Content-Type": "application/json" } });
 });
