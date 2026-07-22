@@ -1989,9 +1989,14 @@ export default function App() {
 
   useEffect(() => {
     if (!isConfigured) { setLoading(false); return; }
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    // Tournament over — sign everyone out so they land on the thank-you page.
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) supabase.auth.signOut();
+      else setLoading(false);
+    });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      if (!s) setLoading(false);
       setSession(s);
     });
     return () => sub.subscription.unsubscribe();
