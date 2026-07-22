@@ -78,59 +78,93 @@ function ResetPassword({ onDone }) {
 }
 
 // ---------------------------------------------------------------- Auth screen
+const EURO_FORM_ID  = "1FAIpQLSfOINnQE3agN7cyt8CXZEjPgMY88ZKA2IkTMqGYU4mRb-HubQ";
+const EURO_ENTRY_ID = "entry.870485319";
+
 function AuthScreen() {
-  const [mode, setMode] = useState("in");
   const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
-  const [name, setName] = useState("");
-  const [msg, setMsg] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function go() {
-    setBusy(true); setMsg("");
+  const [status, setStatus] = useState("idle"); // idle | busy | done | error
+
+  async function submit() {
+    const val = email.trim();
+    if (!val || !val.includes("@")) { setStatus("error"); return; }
+    setStatus("busy");
     try {
-      if (mode === "up") {
-        if (!name.trim()) { setMsg("Enter your name."); setBusy(false); return; }
-        const { error } = await signUp(email.trim(), pw, name.trim());
-        setMsg(error ? error.message : "Account created — you can sign in now.");
-        if (!error) setMode("in");
-      } else {
-        const { error } = await signIn(email.trim(), pw);
-        if (error) setMsg(error.message);
-      }
-    } catch (e) { setMsg(e.message); }
-    setBusy(false);
+      const body = new FormData();
+      body.append(EURO_ENTRY_ID, val);
+      await fetch(
+        `https://docs.google.com/forms/d/e/${EURO_FORM_ID}/formResponse`,
+        { method: "POST", body, mode: "no-cors" }
+      );
+    } catch { /* no-cors: response is always opaque, treat as success */ }
+    setStatus("done");
   }
-  async function forgot() {
-    if (!email.trim()) { setMsg("Type your email above first, then tap this."); return; }
-    setBusy(true); setMsg("");
-    try {
-      const { error } = await sendPasswordReset(email.trim());
-      setMsg(error ? error.message : "Sent! Check your email for a reset link.");
-    } catch (e) { setMsg(e.message); }
-    setBusy(false);
-  }
+
   return (
     <div className="auth">
       <div className="pitch-deco" />
       <div className="kicker">🇺🇸 🇲🇽 🇨🇦 &nbsp;Summer 2026</div>
       <h1 className="wordmark">World Cup<br /><span>Pick'Em</span></h1>
       <div className="uline" />
-      <p className="sub">Call every group match, predict who survives each knockout round, and battle your friends on one shared leaderboard.</p>
-      {mode === "up" && <input className="field" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />}
-      <input className="field" placeholder="you@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-      <input className="field" type="password" placeholder="Password" value={pw}
-        onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
-      <button className="btn full" disabled={busy} onClick={go}>{busy ? "…" : mode === "up" ? "Create account" : "Sign in"}</button>
-      {mode === "in" && (
-        <p className="note" style={{ marginTop: 10, textAlign: "center" }}>
-          <a style={{ color: "var(--blue)", cursor: "pointer", fontWeight: 700 }} onClick={forgot}>Forgot password?</a>
-        </p>
-      )}
-      <p className="note" style={{ marginTop: 14 }}>
-        {mode === "up" ? "Already have an account? " : "New here? "}
-        <a style={{ color: "var(--blue)", cursor: "pointer", fontWeight: 700 }}
-          onClick={() => { setMode(mode === "up" ? "in" : "up"); setMsg(""); }}>{mode === "up" ? "Sign in" : "Create one"}</a>
+
+      {/* Champion strip */}
+      <div className="ty-champ">
+        <span className="ty-flag">🇪🇸</span>
+        <div>
+          <div className="ty-champ-label">2026 World Cup Champion</div>
+          <div className="ty-champ-name">Spain</div>
+        </div>
+      </div>
+
+      {/* Top 3 podium */}
+      <div className="ty-podium">
+        <div className="ty-pod">
+          <div className="ty-pod-rank">🥇 1st</div>
+          <div className="ty-pod-name">Uzi1</div>
+          <div className="ty-pod-owner">Uzair</div>
+        </div>
+        <div className="ty-pod">
+          <div className="ty-pod-rank">🥈 2nd</div>
+          <div className="ty-pod-name">NK</div>
+          <div className="ty-pod-owner">Nikita Kudla</div>
+        </div>
+        <div className="ty-pod">
+          <div className="ty-pod-rank">🥉 3rd</div>
+          <div className="ty-pod-name">Rohit</div>
+          <div className="ty-pod-owner">Rohit</div>
+        </div>
+      </div>
+
+      <p className="sub" style={{ marginTop: 20 }}>
+        What a tournament — thanks for playing! The final leaderboard is locked in.
       </p>
+
+      {/* Euro 2028 signup */}
+      <div className="ty-divider"><span>coming next</span></div>
+      <div className="ty-euro-eyebrow">UEFA Euro 2028 · United Kingdom &amp; Ireland</div>
+      <p className="ty-euro-heading">Want in for the Euros?</p>
+      <p className="note" style={{ marginBottom: 14 }}>Drop your email and we'll reach out when the next Pick'em opens. No spam.</p>
+
+      {status === "done" ? (
+        <div className="ty-success">
+          <span className="ty-success-icon">✓</span>
+          <span>You're on the list — see you at Euro 2028!</span>
+        </div>
+      ) : (
+        <>
+          <input
+            className={`field${status === "error" ? " field-err" : ""}`}
+            type="email"
+            placeholder="your@email.com"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setStatus("idle"); }}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+          <button className="btn full ty-euro-btn" disabled={status === "busy"} onClick={submit}>
+            {status === "busy" ? "…" : "Notify me for Euro 2028"}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -1752,8 +1786,17 @@ function AdminHealth() {
   );
 }
 
-function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, setAdminRound, onSaveKo, onSaveScores }) {
+function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, setAdminRound, onSaveKo, onSaveScores, archiveData }) {
   const [view, setView] = useState("commish");
+
+  function downloadArchive() {
+    const blob = new Blob([JSON.stringify(archiveData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "wc-pickem-archive.json"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (!admin) return (<div className="fade"><div className="head"><div className="h1">🔒 Admin</div></div>
     <div className="empty" style={{ marginTop: 6 }}>🚫 You don't have access to this page.<br />Only the pool commissioners can enter results.</div></div>);
   return (
@@ -1763,8 +1806,19 @@ function Admin({ admin, adminScores, setScore, adminKo, onKoToggle, adminRound, 
         <span className="txt"><b>Restricted page.</b> Only commissioners can edit this. Add admins from the Supabase dashboard.</span></div>
       <div className="seg"><button className={view === "health" ? "on" : ""} onClick={() => setView("health")}>API Health</button>
         <button className={view === "commish" ? "on" : ""} onClick={() => setView("commish")}>Group Results</button>
-        <button className={view === "ko" ? "on" : ""} onClick={() => setView("ko")}>Knockout Results</button></div>
-      {view === "health" ? <AdminHealth /> : view === "commish" ? (<>
+        <button className={view === "ko" ? "on" : ""} onClick={() => setView("ko")}>Knockout Results</button>
+        <button className={view === "archive" ? "on" : ""} onClick={() => setView("archive")}>📦 Archive</button></div>
+      {view === "archive" ? (
+        <div style={{ padding: "16px 0" }}>
+          <p className="poolnote">Download a complete snapshot of all picks, results, fixtures, and standings as a single JSON file. Used to build the static offline archive.</p>
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>
+            <button className="btn" onClick={downloadArchive}>⬇ Download wc-pickem-archive.json</button>
+          </div>
+          <p className="note" style={{ textAlign: "center", marginTop: 12 }}>
+            Exported at: {new Date().toLocaleString()} · {archiveData?.everyone?.length ?? 0} entries
+          </p>
+        </div>
+      ) : view === "health" ? <AdminHealth /> : view === "commish" ? (<>
         <p className="poolnote">Enter the final score for each match as games finish. Winner, points, and goal totals update automatically.</p>
         {GROUPS.map((g) => (<div className="gt-card" key={g.id}>
           <div className="gt-title"><span className="gt-badge">{g.id}</span>Group {g.id}</div>
@@ -2099,7 +2153,8 @@ export default function App() {
         {tab === "rules" && <Rules />}
         {tab === "admin" && <Admin admin={admin} adminScores={adminScores} setScore={adminSetScore}
           adminKo={adminKo} onKoToggle={adminToggleKo} adminRound={adminRound} setAdminRound={setAdminRound}
-          onSaveKo={adminSaveKo} onSaveScores={adminSaveScores} />}
+          onSaveKo={adminSaveKo} onSaveScores={adminSaveScores}
+          archiveData={{ everyone, results, fixtures, standings, topScorers, exportedAt: new Date().toISOString() }} />}
       </div>
 
       {showSave && (<div className="savebar"><button className="btn" onClick={tab === "groups" ? saveGroups : saveKnockoutsAll}>

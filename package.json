@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "build:static": "vite build --mode static --outDir dist-archive",
+    "preview": "vite preview",
+    "serve:archive": "npx serve dist-archive"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
